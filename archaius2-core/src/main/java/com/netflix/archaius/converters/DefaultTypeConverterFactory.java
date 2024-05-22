@@ -51,22 +51,22 @@ public final class DefaultTypeConverterFactory implements TypeConverter.Factory 
         converters.put(String.class, Function.identity()::apply);
         converters.put(boolean.class, DefaultTypeConverterFactory::convertBoolean);
         converters.put(Boolean.class, DefaultTypeConverterFactory::convertBoolean);
-        converters.put(Integer.class, Integer::valueOf);
-        converters.put(int.class, Integer::valueOf);
-        converters.put(long.class, Long::valueOf);
-        converters.put(Long.class, Long::valueOf);
-        converters.put(short.class, Short::valueOf);
-        converters.put(Short.class, Short::valueOf);
-        converters.put(byte.class, Byte::valueOf);
-        converters.put(Byte.class, Byte::valueOf);
-        converters.put(double.class, Double::valueOf);
-        converters.put(Double.class, Double::valueOf);
-        converters.put(float.class, Float::valueOf);
-        converters.put(Float.class, Float::valueOf);
+        converters.put(Integer.class, Lenient::parseInt);
+        converters.put(int.class, Lenient::parseInt);
+        converters.put(long.class, Lenient::parseLong);
+        converters.put(Long.class, Lenient::parseLong);
+        converters.put(short.class, Lenient::parseShort);
+        converters.put(Short.class, Lenient::parseShort);
+        converters.put(byte.class, Lenient::parseByte);
+        converters.put(Byte.class, Lenient::parseByte);
+        converters.put(double.class, Lenient::parseDouble);
+        converters.put(Double.class, Lenient::parseDouble);
+        converters.put(float.class, Lenient::parseFloat);
+        converters.put(Float.class, Lenient::parseFloat);
         converters.put(BigInteger.class, BigInteger::new);
         converters.put(BigDecimal.class, BigDecimal::new);
-        converters.put(AtomicInteger.class, v -> new AtomicInteger(Integer.parseInt(v)));
-        converters.put(AtomicLong.class, v -> new AtomicLong(Long.parseLong(v)));
+        converters.put(AtomicInteger.class, v -> new AtomicInteger(Lenient.parseInt(v)));
+        converters.put(AtomicLong.class, v -> new AtomicLong(Lenient.parseLong(v)));
         converters.put(Duration.class, Duration::parse);
         converters.put(Period.class, Period::parse);
         converters.put(LocalDateTime.class, LocalDateTime::parse);
@@ -76,7 +76,7 @@ public final class DefaultTypeConverterFactory implements TypeConverter.Factory 
         converters.put(OffsetTime.class, OffsetTime::parse);
         converters.put(ZonedDateTime.class, ZonedDateTime::parse);
         converters.put(Instant.class, v -> Instant.from(OffsetDateTime.parse(v)));
-        converters.put(Date.class, v -> new Date(Long.parseLong(v)));
+        converters.put(Date.class, v -> new Date(Lenient.parseLong(v)));
         converters.put(Currency.class, Currency::getInstance);
         converters.put(URI.class, URI::create);
         converters.put(Locale.class, Locale::forLanguageTag);
@@ -102,5 +102,46 @@ public final class DefaultTypeConverterFactory implements TypeConverter.Factory 
             }
         }
         return Optional.empty();
+    }
+
+    /** A collection of lenient number parsers that allow whitespace and trailing 'L' or 'l' in long values */
+    private static final class Lenient {
+        private static String maybeTrim(String s) {
+            // The way these are called, we'll never get a null. In any case, we pass it through, to ensure that
+            // the exception thrown remains the same as whatever the JDK's parse***() methods throw.
+            return s != null ? s.trim() : null;
+        }
+
+        private static long parseLong(String s) throws NumberFormatException {
+            s = maybeTrim(s);
+            // Also allow trailing 'L' or 'l' in long values
+            if (s != null) {
+                if (s.endsWith("L") || s.endsWith("l")) {
+                    s = s.substring(0, s.length() - 1);
+                }
+            }
+
+            return Long.parseLong(s);
+        }
+
+        private static int parseInt(String s) throws NumberFormatException {
+            return Integer.parseInt(maybeTrim(s));
+        }
+
+        private static short parseShort(String s) throws NumberFormatException {
+            return Short.parseShort(maybeTrim(s));
+        }
+
+        private static byte parseByte(String s) throws NumberFormatException {
+            return Byte.parseByte(maybeTrim(s));
+        }
+
+        private static double parseDouble(String s) throws NumberFormatException {
+            return Double.parseDouble(maybeTrim(s));
+        }
+
+        private static float parseFloat(String s) throws NumberFormatException {
+            return Float.parseFloat(maybeTrim(s));
+        }
     }
 }

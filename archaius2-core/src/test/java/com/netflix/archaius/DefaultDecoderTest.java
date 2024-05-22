@@ -82,6 +82,14 @@ public class DefaultDecoderTest {
         assertEquals(BigDecimal.valueOf(Double.MAX_VALUE), decoder.decode(BigDecimal.class, String.valueOf(Double.MAX_VALUE)));
         assertEquals(Integer.MAX_VALUE, decoder.decode(AtomicInteger.class, String.valueOf(Integer.MAX_VALUE)).get());
         assertEquals(Long.MAX_VALUE, decoder.decode(AtomicLong.class, String.valueOf(Long.MAX_VALUE)).get());
+
+        // Verify lenient decoding
+        assertEquals(123L, decoder.decode(long.class, "123L"));
+        assertEquals(123L, decoder.decode(long.class, "123l"));
+        assertEquals(123L, decoder.decode(long.class, "\t\t\n  123L \n\n   ")); /// Mixed types of whitespace AND trailing L
+
+        assertEquals(123, decoder.decode(int.class, "    123    "));
+        assertEquals(123.456, decoder.decode(double.class, "   123.456   "));
     }
     
     @Test
@@ -98,7 +106,9 @@ public class DefaultDecoderTest {
         assertEquals(LocalTime.parse("10:15:30"), decoder.decode(LocalTime.class, "10:15:30"));
         assertEquals(Instant.from(OffsetDateTime.parse("2016-08-03T10:15:30+07:00")), decoder.decode(Instant.class, "2016-08-03T10:15:30+07:00"));
         Date newDate = new Date();
-        assertEquals(newDate, decoder.decode(Date.class, String.valueOf(newDate.getTime())));
+        String encodedDate = String.valueOf(newDate.getTime());
+        assertEquals(newDate, decoder.decode(Date.class, encodedDate));
+        assertEquals(newDate, decoder.decode(Date.class, "   " + encodedDate + "   "), "date decoding should be lenient of whitespace");
     }
     
     @Test
@@ -117,6 +127,8 @@ public class DefaultDecoderTest {
         assertEquals(Collections.emptyList(), decoder.decode(listOfIntegerType, ""));
         assertEquals(Arrays.asList(1, 2, 3, 4, 5, 6), decoder.decode(listOfIntegerType, "1,2,3,4,5,6"));
         assertEquals(Arrays.asList(1L, 2L, 3L, 4L, 5L, 6L), decoder.decode(collectionOfLongType, "1,2,3,4,5,6"));
+        /// We should be lenient with whitespace and trailing L or l
+        assertEquals(Arrays.asList(1L, 2L, 3L, 4L, 5L, 6L), decoder.decode(collectionOfLongType, "1L, 2 , 3l ,4L  , 5\t, \n   6    "));
         assertEquals(Collections.singleton(2L), decoder.decode(setOfLongType, "2,2,2,2"));
         assertEquals(Collections.emptyMap(), decoder.decode(mapofStringToIntegerType, ""));
         assertEquals(Collections.singletonMap("key", 12345), decoder.decode(mapofStringToIntegerType, "key=12345"));
@@ -134,6 +146,8 @@ public class DefaultDecoderTest {
         assertArrayEquals(new long[] {1L, 2L, 3L, 4L, 5L}, decoder.decode(long[].class, "1,2,3,4,5"));
         assertArrayEquals(new Long[0], decoder.decode(Long[].class, ""));
         assertArrayEquals(new long[0], decoder.decode(long[].class, ""));
+        /// We should be lenient with whitespace and trailing L or l
+        assertArrayEquals(new long[] {1L, 2L, 3L, 4L, 5L, 6L}, decoder.decode(long[].class, "1L, 2 , 3l ,4L  , 5\t, \n   6    "));
     }
 
     enum TestEnumType { FOO, BAR, BAZ }
