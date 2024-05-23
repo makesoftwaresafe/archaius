@@ -184,6 +184,15 @@ public class MapConfigTest {
     }
 
     @Test
+    public void numericInterpolationShouldWork_withNonStringValues() {
+        Config config = MapConfig.builder()
+                .put("default",     123)
+                .put("value",       "${default}")
+                .build();
+        assertEquals(123L, (long) config.getLong("value"));
+    }
+
+    @Test
     public void getKeys() {
         Map<String, String> props = new HashMap<>();
         props.put("key1", "value1");

@@ -254,27 +254,74 @@ public abstract class AbstractConfig implements Config {
         }
     }
 
+    @SuppressWarnings("unchecked")
     protected <T> T getValueWithDefault(Type type, String key, T defaultValue) {
         Object rawProp = getRawProperty(key);
+
+        // Not found. Return the default.
         if (rawProp == null) {
             return defaultValue;
         }
+
+        // raw prop is a String. Decode it or fail.
         if (rawProp instanceof String) {
             try {
                 String value = resolve(rawProp.toString());
                 return decoder.decode(type, value);
-            } catch (NumberFormatException e) {
+            } catch (RuntimeException e) {
                 return parseError(key, rawProp.toString(), e);
-            }
-        } else if (type instanceof Class) {
-            Class<?> cls = (Class<?>) type;
-            if (cls.isInstance(rawProp) || cls.isPrimitive()) {
-                return (T) rawProp;
             }
         }
 
+        if (type instanceof Class) {
+            // Caller wants a simple class.
+            Class<?> cls = (Class<?>) type;
+
+            // The raw object is already of the right type
+            if (cls.isInstance(rawProp)) {
+                return (T) rawProp;
+            }
+
+            // Caller wants a string
+            if (String.class.isAssignableFrom(cls)) {
+                return (T) rawProp.toString();
+            }
+
+            // Caller wants an unwrapped boolean.
+            if (rawProp instanceof Boolean &&  cls == boolean.class) {
+                return (T) rawProp;
+            }
+
+            // Caller wants a number AND we have one. Handle widening and narrowing conversions.
+            // Char is not included here. It's not a Number and the semantics of converting it to/from a number or a
+            // string have rough edges. Just ask users to avoid it.
+            if (rawProp instanceof Number
+                && ( Number.class.isAssignableFrom(cls)
+                   || ( cls.isPrimitive() && cls != char.class ))) { // We handled boolean above, so if cls is a primitive and not char then it's a number type
+                if (cls == int.class || cls == Integer.class) {
+                    return (T) Integer.valueOf(((Number) rawProp).intValue());
+                }
+                if (cls == long.class || cls == Long.class) {
+                    return (T) Long.valueOf(((Number) rawProp).longValue());
+                }
+                if (cls == double.class || cls == Double.class) {
+                    return (T) Double.valueOf(((Number) rawProp).doubleValue());
+                }
+                if (cls == float.class || cls == Float.class) {
+                    return (T) Float.valueOf(((Number) rawProp).floatValue());
+                }
+                if (cls == short.class || cls == Short.class) {
+                    return (T) Short.valueOf(((Number) rawProp).shortValue());
+                }
+                if (cls == byte.class || cls == Byte.class) {
+                    return (T) Byte.valueOf(((Number) rawProp).byteValue());
+                }
+            }
+        }
+
+        // Nothing matches (ie, caller wants a ParametrizedType, or the rawProp is not easily cast to the desired type)
         return parseError(key, rawProp.toString(),
-                new NumberFormatException("Property " + rawProp.toString() + " is of wrong format " + type.getTypeName()));
+                new IllegalArgumentException("Property " + rawProp + " is not convertible to " + type.getTypeName()));
     }
 
     @Override
@@ -284,7 +331,7 @@ public abstract class AbstractConfig implements Config {
 
     @Override
     public <T> T resolve(String value, Class<T> type) {
-        return getDecoder().decode(type, resolve(value));
+        return getDecoder().decode((Type) type, resolve(value));
     }
 
     @Override
@@ -384,14 +431,15 @@ public abstract class AbstractConfig implements Config {
             return notFound(key);
         }
         String[] parts = value.split(getListDelimiter());
-        List<T> result = new ArrayList<T>();
+        List<T> result = new ArrayList<>();
         for (String part : parts) {
-            result.add(decoder.decode(type, part));
+            result.add(decoder.decode((Type) type, part));
         }
         return result;
     }
 
     @Override
+    @SuppressWarnings("rawtypes") // Required by legacy API
     public List getList(String key) {
         String value = getString(key);
         if (value == null) {
@@ -402,6 +450,7 @@ public abstract class AbstractConfig implements Config {
     }
 
     @Override
+    @SuppressWarnings("rawtypes") // Required by legacy API
     public List getList(String key, List defaultValue) {
         String value = getString(key, null);
         if (value == null) {
