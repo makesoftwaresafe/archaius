@@ -23,6 +23,7 @@ import java.lang.invoke.MethodType;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
 import java.lang.reflect.Type;
 import java.util.Collections;
@@ -232,6 +233,9 @@ public class ConfigProxyFactory {
         // Each setter will be mapped to a Property<T> for the property name:
         //      prefix + lowerCamelCaseDerivedPropertyName
         for (Method method : type.getMethods()) {
+            if (Modifier.isStatic(method.getModifiers())) {
+                continue;
+            }
             MethodInvokerHolder methodInvokerHolder = buildInvokerForMethod(type, prefix, method, proxyObject, immutable);
 
             propertyNames.put(method, methodInvokerHolder.propertyName);

@@ -650,4 +650,28 @@ public class ProxyFactoryTest {
         assertEquals(5, proxy.intValue());
         assertEquals("BLAH", proxy.customValue().value());
     }
+
+    @Configuration(prefix = "config")
+    public interface ConfigWithStaticMethods {
+        @PropertyName(name = "foo")
+        @DefaultValue("foo-value")
+        String foo();
+
+        static String bar() {
+            return "bar-value";
+        }
+
+        static int baz(int x) {
+            return x + 1;
+        }
+    }
+
+    @Test
+    public void testInterfaceWithStaticMethods() {
+        SettableConfig config = new DefaultSettableConfig();
+        config.setProperty("config.foo", "foo-value-updated");
+        ConfigProxyFactory proxyFactory = new ConfigProxyFactory(config, config.getDecoder(), DefaultPropertyFactory.from(config));
+        ConfigWithStaticMethods configWithStaticMethods = proxyFactory.newProxy(ConfigWithStaticMethods.class);
+        assertEquals("foo-value-updated", configWithStaticMethods.foo());
+    }
 }
