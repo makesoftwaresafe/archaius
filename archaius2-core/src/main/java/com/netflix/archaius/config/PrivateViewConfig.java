@@ -15,7 +15,7 @@
  */
 package com.netflix.archaius.config;
 
-import java.util.LinkedHashMap;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Map.Entry;
 
@@ -23,6 +23,8 @@ import com.netflix.archaius.api.Config;
 import com.netflix.archaius.api.ConfigListener;
 import com.netflix.archaius.api.Decoder;
 import com.netflix.archaius.api.StrInterpolator;
+import com.netflix.archaius.util.Iterables;
+import com.netflix.archaius.util.Maps;
 
 /**
  * View into another Config that allows usage of a private {@link Decoder}, {@link StrInterpolator}, and
@@ -68,9 +70,11 @@ public class PrivateViewConfig extends AbstractDependentConfig {
     }
 
     private CachedState createState(Config config) {
-        Map<String, Object> data = new LinkedHashMap<>();
-        Map<String, Config> instrumentedKeys = new LinkedHashMap<>();
         boolean instrumented = config.instrumentationEnabled();
+        int size = Iterables.size(config.keys());
+        final Map<String, Object> data = Maps.newLinkedHashMap(size);
+        final Map<String, Config> instrumentedKeys = instrumented ? Maps.newHashMap(size) : Collections.emptyMap();
+
         config.forEachPropertyUninstrumented((k, v) -> {
             data.put(k, v);
             if (instrumented) {
