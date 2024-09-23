@@ -1,8 +1,11 @@
 package com.netflix.archaius.util;
 
+import com.netflix.archaius.Internal;
+
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 
+@Internal
 public final class Maps {
     private Maps() {}
 
