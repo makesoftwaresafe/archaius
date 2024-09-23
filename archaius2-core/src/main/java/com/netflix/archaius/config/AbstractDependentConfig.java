@@ -1,5 +1,6 @@
 package com.netflix.archaius.config;
 
+import com.netflix.archaius.api.Config;
 import com.netflix.archaius.api.PropertyDetails;
 
 import java.util.Iterator;
@@ -27,9 +28,11 @@ public abstract class AbstractDependentConfig extends AbstractConfig {
 
     @Override
     public Object getRawProperty(String key) {
-        Object value = getState().getData().get(key);
-        if (getState().getInstrumentedKeys().containsKey(key)) {
-            getState().getInstrumentedKeys().get(key).recordUsage(createPropertyDetails(key, value));
+        CachedState state = getState();
+        Object value = state.getData().get(key);
+        Config config = state.getInstrumentedKeys().get(key);
+        if (config != null) {
+            config.recordUsage(createPropertyDetails(key, value));
         }
         return value;
     }
@@ -52,9 +55,11 @@ public abstract class AbstractDependentConfig extends AbstractConfig {
 
     @Override
     public void forEachProperty(BiConsumer<String, Object> consumer) {
-        getState().getData().forEach((k, v) -> {
-            if (getState().getInstrumentedKeys().containsKey(k)) {
-                getState().getInstrumentedKeys().get(k).recordUsage(createPropertyDetails(k, v));
+        CachedState state = getState();
+        state.getData().forEach((k, v) -> {
+            Config config = state.getInstrumentedKeys().get(k);
+            if (config != null) {
+                config.recordUsage(createPropertyDetails(k, v));
             }
             consumer.accept(k, v);
         });
@@ -77,8 +82,10 @@ public abstract class AbstractDependentConfig extends AbstractConfig {
 
     @Override
     public void recordUsage(PropertyDetails propertyDetails) {
-        if (getState().getInstrumentedKeys().containsKey(propertyDetails.getKey())) {
-            getState().getInstrumentedKeys().get(propertyDetails.getKey()).recordUsage(createPropertyDetails(propertyDetails.getKey(), propertyDetails.getValue()));
+        CachedState state = getState();
+        Config config = state.getInstrumentedKeys().get(propertyDetails.getKey());
+        if (config != null) {
+            config.recordUsage(createPropertyDetails(propertyDetails.getKey(), propertyDetails.getValue()));
         }
     }
 
