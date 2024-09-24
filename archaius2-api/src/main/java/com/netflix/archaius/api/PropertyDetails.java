@@ -27,6 +27,11 @@ public class PropertyDetails {
         return value;
     }
 
+    @Override
+    public int hashCode() {
+        return Objects.hash(key, id, value);
+    }
+
     public boolean equals(Object o) {
         if (!(o instanceof PropertyDetails)) {
             return false;
