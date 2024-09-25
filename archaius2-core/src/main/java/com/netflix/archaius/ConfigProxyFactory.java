@@ -228,6 +228,7 @@ public class ConfigProxyFactory {
         final InvocationHandler handler = new ConfigProxyInvocationHandler<>(type, prefix, invokers, propertyNames);
 
         final T proxyObject = (T) Proxy.newProxyInstance(type.getClassLoader(), new Class[] { type }, handler);
+        List<RuntimeException> proxyingExceptions = new LinkedList<>();
 
         // Iterate through all declared methods of the class looking for setter methods.
         // Each setter will be mapped to a Property<T> for the property name:
@@ -236,18 +237,35 @@ public class ConfigProxyFactory {
             if (Modifier.isStatic(method.getModifiers())) {
                 continue;
             }
-            MethodInvokerHolder methodInvokerHolder = buildInvokerForMethod(type, prefix, method, proxyObject, immutable);
 
-            propertyNames.put(method, methodInvokerHolder.propertyName);
+            try {
+                MethodInvokerHolder methodInvokerHolder = buildInvokerForMethod(type, prefix, method, proxyObject, immutable);
 
-            if (immutable) {
-                // Cache the current value of the property and always return that.
-                // Note that this will fail for parameterized properties!
-                Object value = methodInvokerHolder.invoker.invoke(new Object[]{});
-                invokers.put(method, (args) -> value);
-            } else {
-                invokers.put(method, methodInvokerHolder.invoker);
+                propertyNames.put(method, methodInvokerHolder.propertyName);
+
+                if (immutable) {
+                    // Cache the current value of the property and always return that.
+                    // Note that this will fail for parameterized properties!
+                    Object value = methodInvokerHolder.invoker.invoke(new Object[]{});
+                    invokers.put(method, (args) -> value);
+                } else {
+                    invokers.put(method, methodInvokerHolder.invoker);
+                }
+            } catch (RuntimeException e) {
+                // Capture the exception and continue processing the other methods. We'll throw them all at the end.
+                proxyingExceptions.add(e);
             }
+        }
+
+        if (!proxyingExceptions.isEmpty()) {
+            String errors = proxyingExceptions.stream()
+                    .map(Throwable::getMessage)
+                    .collect(Collectors.joining("\n\t"));
+            RuntimeException exception = new RuntimeException(
+                    "Failed to create a configuration proxy for class " + type.getName()
+                    + ":\n\t" + errors, proxyingExceptions.get(0));
+            proxyingExceptions.subList(1, proxyingExceptions.size()).forEach(exception::addSuppressed);
+            throw exception;
         }
 
         return proxyObject;
@@ -310,7 +328,7 @@ public class ConfigProxyFactory {
             } else if (m.getParameterCount() > 0) {
                 // A parameterized property. Note that this requires a @PropertyName annotation to extract the interpolation positions!
                 if (nameAnnot == null) {
-                    throw new IllegalArgumentException("Missing @PropertyName annotation on " + m.getDeclaringClass().getName() + "#" + m.getName());
+                    throw new IllegalArgumentException("Missing @PropertyName annotation on method with parameters " + m.getName());
                 }
 
                 // A previous version allowed the full name to be specified, even if the prefix was specified. So, for
@@ -322,6 +340,7 @@ public class ConfigProxyFactory {
                     propertyNameTemplate = nameAnnot.name();
                 }
 
+                // TODO: Figure out a way to validate the template. It should have params in the form ${0}, ${1}, etc.
                 propertyValueGetter = createParameterizedProperty(m.getGenericReturnType(), propertyNameTemplate, defaultValueSupplier);
 
             } else {
@@ -330,8 +349,8 @@ public class ConfigProxyFactory {
             }
 
             return new MethodInvokerHolder(propertyValueGetter, propName);
-        } catch (Exception e) {
-            throw new RuntimeException("Error proxying method " + m.getName(), e);
+        } catch (RuntimeException e) {
+            throw new RuntimeException("Failed to create a proxy for method " + m.getName() + ": " + e, e);
         }
     }
 

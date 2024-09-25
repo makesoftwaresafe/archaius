@@ -28,8 +28,7 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
     
     /**
      * Create a Property factory that is attached to a specific config
-     * @param config
-     * @return
+     * @param config The source of configuration for this factory.
      */
     public static DefaultPropertyFactory from(final Config config) {
         return new DefaultPropertyFactory(config);
@@ -64,6 +63,8 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
     }
 
     @Override
+    @Deprecated
+    @SuppressWarnings("deprecation")
     public PropertyContainer getProperty(String propName) {
         return new PropertyContainer() {
             @Override
@@ -130,7 +131,7 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
                         try {
                             return mapper.apply(value);
                         } catch (Exception e) {
-                            LOG.warn("Invalid value '{}' for property '{}'", propName, value);
+                            LOG.error("Invalid value '{}' for property '{}'. Will return the default instead.", propName, value);
                         }
                     }
                     
@@ -216,7 +217,7 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
                 try {
                     newValue = supplier.get();
                 } catch (Exception e) {
-                    LOG.warn("Unable to get current version of property '{}'", keyAndType.key, e);
+                    LOG.error("Unable to get current version of property '{}'", keyAndType.key, e);
                 }
                 
                 if (cache.compareAndSet(currentValue, newValue, cacheVersion, latestVersion)) {
@@ -260,16 +261,18 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
 
         @Deprecated
         @Override
+        @SuppressWarnings("deprecation")
         public void addListener(PropertyListener<T> listener) {
             oldSubscriptions.put(listener, onChange(listener));
         }
 
         /**
          * Remove a listener previously registered by calling addListener
-         * @param listener
+         * @param listener The listener to be removed
          */
         @Deprecated
         @Override
+        @SuppressWarnings("deprecation")
         public void removeListener(PropertyListener<T> listener) {
             Subscription subscription = oldSubscriptions.remove(listener);
             if (subscription != null) {

@@ -21,12 +21,14 @@ import javax.inject.Singleton;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.stream.Stream;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
 
 public class ProxyTest {
-    public static interface MyConfig {
+    public interface MyConfig {
         @DefaultValue("0")
         int getInteger();
         
@@ -43,15 +45,7 @@ public class ProxyTest {
         @DefaultValue("0")
         int getInteger();
     }
-    
-    @Configuration(prefix="foo")
-    public interface MyConfigWithPrefix {
-        @DefaultValue("0")
-        int getInteger();
-        
-        String getString();
-    }
-    
+
     @Test
     public void testConfigWithNoPrefix() throws ConfigException {
         Injector injector = Guice.createInjector(
@@ -67,6 +61,7 @@ public class ProxyTest {
                 
                 @Provides
                 @Singleton
+                @SuppressWarnings("unused")
                 public MyConfig getMyConfig(ConfigProxyFactory factory) {
                     return factory.newProxy(MyConfig.class);
                 }
@@ -98,6 +93,7 @@ public class ProxyTest {
                 
                 @Provides
                 @Singleton
+                @SuppressWarnings("unused")
                 public MyConfig getMyConfig(ConfigProxyFactory factory) {
                     return factory.newProxy(MyConfig.class, "prefix");
                 }
@@ -121,6 +117,7 @@ public class ProxyTest {
             new ArchaiusModule() {
                 @Provides
                 @Singleton
+                @SuppressWarnings("unused")
                 public ModuleTestConfig getMyConfig(ConfigProxyFactory factory) {
                     return factory.newProxy(ModuleTestConfig.class, "moduleTest");
                 }
@@ -135,6 +132,7 @@ public class ProxyTest {
     
     public interface DefaultMethodWithAnnotation {
         @DefaultValue("fromAnnotation")
+        @SuppressWarnings("unused")
         default String getValue() {
             return "fromDefault";
         }
@@ -142,27 +140,23 @@ public class ProxyTest {
     
     @Test
     public void annotationAndDefaultImplementationNotAllowed() throws ConfigException {
-        try {
-            Injector injector = Guice.createInjector(
+        Injector injector = Guice.createInjector(
                 new ArchaiusModule() {
-                    @Override
-                    protected void configureArchaius() {
-                    }
-                    
                     @Provides
                     @Singleton
+                    @SuppressWarnings("unused")
                     public DefaultMethodWithAnnotation getMyConfig(ConfigProxyFactory factory) {
                         return factory.newProxy(DefaultMethodWithAnnotation.class);
                     }
                 });
-            
-            injector.getInstance(DefaultMethodWithAnnotation.class);
-            fail("Exepcted ProvisionException");
-        } catch (ProvisionException e) {
-            e.printStackTrace();
-            assertEquals(IllegalArgumentException.class, e.getCause().getCause().getClass());
-        } catch (Exception e) {
-            fail("Expected ProvisionException");
-        }
+
+        ProvisionException pe = assertThrows(ProvisionException.class,
+                () -> injector.getInstance(DefaultMethodWithAnnotation.class));
+
+        Stream.iterate((Throwable) pe, t -> t != null ? t.getCause() : null)
+                .limit(10) // avoid infinite loop
+                .filter(t -> t instanceof IllegalArgumentException)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Expected an IllegalArgumentException in the cause chain", pe));
     }
 }

@@ -48,7 +48,10 @@ abstract class AbstractRegistryDecoder implements Decoder, TypeConverter.Registr
             }
             return converter.convert(encoded);
         } catch (Exception e) {
-            throw new ParseException("Error decoding type `" + type.getTypeName() + "`", e);
+            throw new ParseException("Unable to decode `"
+                                     + encoded
+                                     + "` as type `" + type.getTypeName() + "`: "
+                                     + e, e);
         }
     }
 
@@ -73,9 +76,7 @@ abstract class AbstractRegistryDecoder implements Decoder, TypeConverter.Registr
     }
 
     /**
-     * Iterate through all TypeConverter#Factory's and return the first TypeConverter that matches
-     * @param type
-     * @return
+     * Iterate through all TypeConverter#Factory's and return the first TypeConverter that matches the given type.
      */
     private TypeConverter<?> resolve(Type type) {
         return factories.stream()
@@ -85,10 +86,8 @@ abstract class AbstractRegistryDecoder implements Decoder, TypeConverter.Registr
     }
 
     /**
-     * @param type
-     * @param <T>
-     * @return Return a converter that uses reflection on either a static valueOf or ctor(String) to convert a string value to the
-     *     type.  Will return null if neither is found
+     * Return a converter that uses reflection on either a static <code>valueOf</code> method or a <code>ctor(String)</code>
+     * to convert a string value to the requested type. Will return null if neither is found
      */
     private static <T> TypeConverter<T> findValueOfTypeConverter(Type type) {
         if (!(type instanceof Class)) {
@@ -98,19 +97,20 @@ abstract class AbstractRegistryDecoder implements Decoder, TypeConverter.Registr
         @SuppressWarnings("unchecked")
         Class<T> cls = (Class<T>) type;
 
-        // Next look a valueOf(String) static method
+        // Look for a valueOf(String) static method. The code *assumes* that such a method will return a T
         Method method;
         try {
             method = cls.getMethod("valueOf", String.class);
             return value -> {
                 try {
+                    //noinspection unchecked
                     return (T) method.invoke(null, value);
                 } catch (Exception e) {
                     throw new ParseException("Error converting value '" + value + "' to '" + type.getTypeName() + "'", e);
                 }
             };
         } catch (NoSuchMethodException e1) {
-            // Next look for a T(String) constructor
+            // Next, look for a T(String) constructor
             Constructor<T> c;
             try {
                 c = cls.getConstructor(String.class);
