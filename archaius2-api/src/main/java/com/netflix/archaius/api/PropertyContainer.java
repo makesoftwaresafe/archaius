@@ -26,6 +26,7 @@ import java.util.function.Function;
  * of Property are non-blocking and optimize updating property values 
  * in the background so as not to incur any overhead during hot call
  * paths.
+ * @deprecated Use {@link Property} instead.
  */
 @Deprecated
 public interface PropertyContainer {

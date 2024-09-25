@@ -15,16 +15,20 @@
  */
 package com.netflix.archaius.api;
 
+import java.lang.reflect.Type;
+
 /**
  * Factory of Property objects.
  * 
  * @see Property
- * @deprecated Deprecated in favor of using PropertyRepository
+ * @deprecated Deprecated in favor of {@link PropertyRepository}
  */
 @Deprecated
 public interface PropertyFactory extends PropertyRepository {
     /**
-     * Create a property for the property name.  
+     * Create a property for the property name.
+     * @deprecated Use {@link PropertyRepository#get(String, Type)} instead.
      */
+    @Deprecated
     PropertyContainer getProperty(String propName);
 }
