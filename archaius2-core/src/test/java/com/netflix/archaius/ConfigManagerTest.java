@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.netflix.archaius.api.Property;
-import com.netflix.archaius.api.PropertyFactory;
+import com.netflix.archaius.api.PropertyRepository;
 import com.netflix.archaius.config.DefaultCompositeConfig;
 
 import com.netflix.archaius.config.MapConfig;
@@ -45,9 +45,9 @@ public class ConfigManagerTest {
                         .build()));
 
 
-        PropertyFactory factory = DefaultPropertyFactory.from(config);
+        PropertyRepository factory = DefaultPropertyFactory.from(config);
         
-        Property<String> prop = factory.getProperty("abc").asString("defaultValue");
+        Property<String> prop = factory.get("abc", String.class).orElse("defaultValue");
 
         // Use an AtomicReference to capture the property value change
         AtomicReference<String> capturedValue = new AtomicReference<>("");
