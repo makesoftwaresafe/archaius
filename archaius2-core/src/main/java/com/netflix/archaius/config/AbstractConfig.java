@@ -16,6 +16,7 @@
 package com.netflix.archaius.config;
 
 import com.netflix.archaius.DefaultDecoder;
+import com.netflix.archaius.api.ArchaiusType;
 import com.netflix.archaius.api.Config;
 import com.netflix.archaius.api.ConfigListener;
 import com.netflix.archaius.api.Decoder;
@@ -28,8 +29,6 @@ import com.netflix.archaius.interpolate.ConfigStrLookup;
 import java.lang.reflect.Type;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -62,6 +61,7 @@ public abstract class AbstractConfig implements Config {
         this(generateUniqueName("unnamed-"));
     }
 
+    @SuppressWarnings("unused")
     protected CopyOnWriteArrayList<ConfigListener> getListeners() {
         return listeners;
     }
@@ -74,6 +74,7 @@ public abstract class AbstractConfig implements Config {
         return listDelimiter;
     }
     
+    @SuppressWarnings("unused")
     public void setListDelimiter(String delimiter) {
         listDelimiter = delimiter;
     }
@@ -162,13 +163,18 @@ public abstract class AbstractConfig implements Config {
 
     /**
      * Handle notFound when a defaultValue is provided.
-     * @param defaultValue
-     * @return
+     * This implementation simply returns the defaultValue. Subclasses can override this method to provide
+     * alternative behavior.
      */
-    protected <T> T notFound(String key, T defaultValue) {
+    protected <T> T notFound(@SuppressWarnings("unused") String key, T defaultValue) {
         return defaultValue;
     }
-    
+
+    /**
+     * Handle notFound when no defaultValue is provided.
+     * This implementation throws a NoSuchElementException. Subclasses can override this method to provide
+     * alternative behavior.
+     */
     protected <T> T notFound(String key) {
         throw new NoSuchElementException("'" + key + "' not found");
     }
@@ -426,38 +432,35 @@ public abstract class AbstractConfig implements Config {
 
     @Override
     public <T> List<T> getList(String key, Class<T> type) {
-        String value = getString(key);
+        Object value = getRawProperty(key);
         if (value == null) {
             return notFound(key);
         }
-        String[] parts = value.split(getListDelimiter());
-        List<T> result = new ArrayList<>();
-        for (String part : parts) {
-            result.add(decoder.decode((Type) type, part));
-        }
-        return result;
+
+        // TODO: handle the case where value is a collection
+        return decoder.decode(ArchaiusType.forListOf(type), resolve(value.toString()));
     }
 
+    /**
+     * @inheritDoc
+     * This implementation always parses the underlying property as a comma-delimited string and returns
+     * a {@code List<String>}.
+     */
     @Override
-    @SuppressWarnings("rawtypes") // Required by legacy API
-    public List getList(String key) {
-        String value = getString(key);
-        if (value == null) {
-            return notFound(key);
-        }
-        String[] parts = value.split(getListDelimiter());
-        return Arrays.asList(parts);
+    public List<?> getList(String key) {
+        return getList(key, String.class);
     }
 
     @Override
     @SuppressWarnings("rawtypes") // Required by legacy API
     public List getList(String key, List defaultValue) {
-        String value = getString(key, null);
+        Object value = getRawProperty(key);
         if (value == null) {
             return notFound(key, defaultValue);
         }
-        String[] parts = value.split(",");
-        return Arrays.asList(parts);
+
+        // TODO: handle the case where value is a collection
+        return decoder.decode(ArchaiusType.forListOf(String.class), resolve(value.toString()));
     }
 
     @Override

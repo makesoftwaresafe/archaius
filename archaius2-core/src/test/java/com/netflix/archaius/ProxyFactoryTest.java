@@ -1,6 +1,8 @@
 package com.netflix.archaius;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -652,6 +654,7 @@ public class ProxyFactoryTest {
     }
 
     @Configuration(prefix = "config")
+    @SuppressWarnings("unused")
     public interface ConfigWithStaticMethods {
         @PropertyName(name = "foo")
         @DefaultValue("foo-value")
@@ -673,5 +676,34 @@ public class ProxyFactoryTest {
         ConfigProxyFactory proxyFactory = new ConfigProxyFactory(config, config.getDecoder(), DefaultPropertyFactory.from(config));
         ConfigWithStaticMethods configWithStaticMethods = proxyFactory.newProxy(ConfigWithStaticMethods.class);
         assertEquals("foo-value-updated", configWithStaticMethods.foo());
+    }
+
+    @Configuration(prefix = "config")
+    @SuppressWarnings("unused")
+    public interface ConfigWithBadSettings {
+        @DefaultValue("Q") // Q is, surprisingly, not an integer
+        int getInteger();
+
+        @DefaultValue("NOTINENUM") // NOTINENUM is not a valid enum element
+        TestEnum getEnum();
+
+        // A parametrized method requires a @PropertyName annotation
+        int getAnIntWithParam(String param);
+    }
+
+    @Test
+    public void testInvalidInterface() {
+        SettableConfig config = new DefaultSettableConfig();
+        PropertyFactory factory = DefaultPropertyFactory.from(config);
+        ConfigProxyFactory proxy = new ConfigProxyFactory(config, config.getDecoder(), factory);
+
+        RuntimeException e = assertThrows(RuntimeException.class, () -> proxy.newProxy(ConfigWithBadSettings.class));
+
+        assertThat(e.getMessage(),
+                allOf(
+                    containsString("ConfigWithBadSettings"),
+                    containsString("getInteger"),
+                    containsString("getEnum"),
+                    containsString("getAnIntWithParam")));
     }
 }

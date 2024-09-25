@@ -15,16 +15,24 @@
  */
 package com.netflix.archaius.config;
 
+import java.net.URI;
+import java.time.Duration;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.function.BiConsumer;
 
+import com.netflix.archaius.exceptions.ParseException;
 import org.junit.jupiter.api.Test;
 
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class AbstractConfigTest {
 
@@ -38,6 +46,10 @@ public class AbstractConfigTest {
             entries.put("long", 42L);
             entries.put("float", 42.0f);
             entries.put("double", 42.0d);
+            entries.put("numberList", "1, 2,3 "); // The embedded spaces should not trip the numeric parsers.
+            entries.put("stringList", "a,b,c");
+            entries.put("uriList", "http://example.com,http://example.org");
+            entries.put("underlyingList", Arrays.asList("a", "b", "c"));
         }
 
         @Override
@@ -80,6 +92,37 @@ public class AbstractConfigTest {
     @Test
     public void getNonExistentProperty() {
         assertFalse(config.getProperty("non_existent").isPresent());
+    }
+
+    @Test
+    public void testGetLists() {
+        assertEquals(Arrays.asList(1, 2, 3), config.getList("numberList", Integer.class));
+        assertEquals(Arrays.asList(1L, 2L, 3L), config.getList("numberList", Long.class));
+        // Watch out for the trailing space in the original value in the config!
+        assertEquals(Arrays.asList("1", "2", "3 "), config.getList("numberList", String.class));
+        assertEquals(Arrays.asList("a", "b", "c"), config.getList("stringList", String.class));
+        assertEquals(Arrays.asList(URI.create("http://example.com"), URI.create("http://example.org")), config.getList("uriList", URI.class));
+
+        // Watch out for the trailing space in the list in the original value in the config!
+        assertEquals(Arrays.asList("1", "2", "3 "), config.getList("numberList"));
+        assertEquals(Arrays.asList("a", "b", "c"), config.getList("stringList"));
+        assertEquals(Arrays.asList("http://example.com", "http://example.org"), config.getList("uriList"));
+
+        // TODO: Fix this! The current implementation returns the list  ["[a", "b", "c]"]
+        //assertEquals(Arrays.asList("a", "b", "c"), config.getList("underlyingList"));
+    }
+
+    @Test
+    public void testBadLists() {
+        ParseException pe1 = assertThrows(ParseException.class, () -> config.getList("numberList", Boolean.class));
+        assertThat(pe1.getMessage(), allOf(
+                containsString(config.getString("numberList")),
+                containsString("java.util.List<java.lang.Boolean>")));
+
+        ParseException pe2 = assertThrows(ParseException.class, () -> config.getList("stringList", Duration.class));
+        assertThat(pe2.getMessage(), allOf(
+                containsString(config.getString("stringList")),
+                containsString("java.util.List<java.time.Duration>")));
     }
 
     @Test
