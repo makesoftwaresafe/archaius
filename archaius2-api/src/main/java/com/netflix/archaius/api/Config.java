@@ -135,14 +135,26 @@ public interface Config extends PropertySource {
     
     /**
      * Get the property as a list.  Depending on the underlying implementation the list
-     * may be derived from a comma delimited string or from an actual list structure.
-     * @param key
-     * @return
+     * may be derived from a comma-delimited string or from an actual list structure.
+     * @deprecated Use {@link #getList(String, Class)} instead.
      */
     List<?> getList(String key);
-    
+
+    /**
+     * Get the property as a list.  Depending on the underlying implementation the list
+     * may be derived from a comma-delimited string or from an actual list structure.
+     */
     <T> List<T> getList(String key, Class<T> type);
-    
+
+    /**
+     * Get the property as a list.  Depending on the underlying implementation the list
+     * may be derived from a comma-delimited string or from an actual list structure.
+     * This method is inherently unsafe and should be used with caution. The type of the list may change
+     * depending on whether the key is defined or not, because the parser can't know the type of the defaultValue's
+     * elements.
+     * @deprecated Use {@link #getList(String, Class)} instead.
+     */
+    @Deprecated
     List<?> getList(String key, List<?> defaultValue);
 
     /**
