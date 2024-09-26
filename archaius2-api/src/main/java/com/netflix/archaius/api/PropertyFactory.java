@@ -26,8 +26,8 @@ import java.lang.reflect.Type;
 @Deprecated
 public interface PropertyFactory extends PropertyRepository {
     /**
-     * Create a property for the property name.
-     * @deprecated Use {@link PropertyRepository#get(String, Type)} instead.
+     * Create a {@link PropertyContainer} for the given name.
+     * @deprecated Use {@link PropertyRepository#get(String, Type)} or {@link PropertyRepository#get(String, Class)} instead.
      */
     @Deprecated
     PropertyContainer getProperty(String propName);

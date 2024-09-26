@@ -15,6 +15,7 @@
  */
 package com.netflix.archaius.config;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -93,7 +94,12 @@ public class MapConfigTest {
     public void nonExistentShort() {
         assertThrows(NoSuchElementException.class, () -> config.getShort("nonexistent"));
     }
-    
+
+    @Test
+    public void nonExistentCustomType() {
+        assertThrows(NoSuchElementException.class, () -> config.get(Duration.class, "nonexistent"));
+    }
+
     @Test
     public void invalidBigDecimal() {
         assertThrows(ParseException.class, () -> config.getBigDecimal("badnumber"));
@@ -142,6 +148,11 @@ public class MapConfigTest {
     @Test
     public void invalidShort() {
         assertThrows(ParseException.class, () -> config.getShort("badnumber"));
+    }
+
+    @Test
+    public void invalidCustomType() {
+        assertThrows(ParseException.class, () -> config.get(Duration.class, "str"));
     }
     
     @Test

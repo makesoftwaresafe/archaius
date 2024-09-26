@@ -6,6 +6,7 @@ import com.netflix.archaius.api.Property;
 import com.netflix.archaius.api.PropertyContainer;
 import com.netflix.archaius.api.PropertyFactory;
 import com.netflix.archaius.api.PropertyListener;
+import com.netflix.archaius.exceptions.ParseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,6 +63,7 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
         this.config.addListener(this);
     }
 
+    /** @deprecated Use {@link #get(String, Type)} or {@link #get(String, Class)} instead. */
     @Override
     @Deprecated
     @SuppressWarnings("deprecation")
@@ -124,19 +126,23 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
 
             @Override
             public <T> Property<T> asType(Function<String, T> mapper, String defaultValue) {
-                T typedDefaultValue = mapper.apply(defaultValue);
+                T typedDefaultValue = applyOrThrow(mapper, defaultValue);
                 return getFromSupplier(propName, null, () -> {
                     String value = config.getString(propName, null);
                     if (value != null) {
-                        try {
-                            return mapper.apply(value);
-                        } catch (Exception e) {
-                            LOG.error("Invalid value '{}' for property '{}'. Will return the default instead.", propName, value);
-                        }
+                            return applyOrThrow(mapper, value);
                     }
                     
                     return typedDefaultValue;
                 });
+            }
+
+            private <T> T applyOrThrow(Function<String, T> mapper, String value) {
+                try {
+                    return mapper.apply(value);
+                } catch (RuntimeException e) {
+                    throw new ParseException("Invalid value '" + value + "' for property '" + propName + "'.", e);
+                }
             }
         };
     }
@@ -208,23 +214,28 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
         
         @Override
         public T get() {
-            int cacheVersion = cache.getStamp();
+            int[] cacheVersion = new int[1];
+            T currentValue = cache.get(cacheVersion);
             int latestVersion  = masterVersion.get();
-            
-            if (cacheVersion != latestVersion) {
-                T currentValue = cache.getReference();
-                T newValue = null;
-                try {
-                    newValue = supplier.get();
-                } catch (Exception e) {
-                    LOG.error("Unable to get current version of property '{}'", keyAndType.key, e);
-                }
-                
-                if (cache.compareAndSet(currentValue, newValue, cacheVersion, latestVersion)) {
-                    // Possible race condition here but not important enough to warrant locking
+
+            if (cacheVersion[0] == latestVersion) {
+                return currentValue;
+            }
+
+            try {
+                T newValue = supplier.get();
+
+                if (cache.compareAndSet(currentValue, newValue, cacheVersion[0], latestVersion)) {
+                    // newValue could be stale here already, if the cache was updated *again* between the CAS and this line
+                    // We don't care enough about this edge case to fix it.
                     return newValue;
                 }
+
+            } catch (RuntimeException e) {
+                LOG.error("Unable to get current version of property '{}'", keyAndType.key, e);
+                throw e; // Rethrow the exception, our caller should know that the property is not available
             }
+
             return cache.getReference();
         }
 

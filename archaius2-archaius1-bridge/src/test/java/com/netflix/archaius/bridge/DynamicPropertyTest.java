@@ -1,5 +1,6 @@
 package com.netflix.archaius.bridge;
 
+import com.netflix.archaius.api.PropertyRepository;
 import org.apache.commons.configuration.AbstractConfiguration;
 
 import com.google.inject.Guice;
@@ -7,7 +8,6 @@ import com.google.inject.Injector;
 import com.google.inject.Key;
 import com.netflix.archaius.api.Config;
 import com.netflix.archaius.api.Property;
-import com.netflix.archaius.api.PropertyFactory;
 import com.netflix.archaius.api.config.SettableConfig;
 import com.netflix.archaius.api.inject.RuntimeLayer;
 import com.netflix.archaius.guice.ArchaiusModule;
@@ -44,7 +44,7 @@ public class DynamicPropertyTest {
     @Test
     public void settingOnArchaius2UpdateArchaius1(TestInfo testInfo) {
         String methodName = testInfo.getTestMethod().map(Method::getName).orElse("unknown");
-        Property<String> a2prop = injector.getInstance(PropertyFactory.class).getProperty(methodName).asString("default");
+        Property<String> a2prop = injector.getInstance(PropertyRepository.class).get(methodName, String.class).orElse("default");
         DynamicStringProperty a1prop = DynamicPropertyFactory.getInstance().getStringProperty(methodName, "default");
         
         assertEquals("default", a1prop.get());
@@ -63,7 +63,7 @@ public class DynamicPropertyTest {
         config.accept(new PrintStreamVisitor());
         ConfigurationManager.getConfigInstance().setProperty("foo", 123);
         
-        Property<Integer> prop2 = injector.getInstance(PropertyFactory.class).getProperty("foo").asInteger(1);
+        Property<Integer> prop2 = injector.getInstance(PropertyRepository.class).get("foo", Integer.class).orElse(1);
         
         DynamicIntProperty prop = DynamicPropertyFactory.getInstance().getIntProperty("foo", 2);
         

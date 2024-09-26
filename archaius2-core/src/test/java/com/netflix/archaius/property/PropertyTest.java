@@ -31,21 +31,24 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import com.netflix.archaius.api.PropertyContainer;
+import com.netflix.archaius.exceptions.ParseException;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.Mockito;
 
 import com.netflix.archaius.DefaultPropertyFactory;
-import com.netflix.archaius.api.Config;
 import com.netflix.archaius.api.Property;
 import com.netflix.archaius.api.Property.Subscription;
 import com.netflix.archaius.api.PropertyFactory;
 import com.netflix.archaius.api.PropertyListener;
 import com.netflix.archaius.api.config.SettableConfig;
-import com.netflix.archaius.api.exceptions.ConfigException;
 import com.netflix.archaius.config.DefaultSettableConfig;
-import com.netflix.archaius.config.MapConfig;
 
 import org.junit.jupiter.api.Test;
 
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -55,6 +58,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 @SuppressWarnings("deprecation")
 public class PropertyTest {
+
     static class MyService {
         private final Property<Integer> value;
         private final Property<Integer> value2;
@@ -63,9 +67,9 @@ public class PropertyTest {
 
         MyService(PropertyFactory config) {
             setValueCallsCounter = new AtomicInteger(0);
-            value  = config.getProperty("foo").asInteger(1);
+            value  = config.get("foo", Integer.class).orElse(1);
             value.addListener(new MethodInvoker<>(this, "setValue"));
-            value2 = config.getProperty("foo").asInteger(2);
+            value2 = config.get("foo", Integer.class).orElse(2);
         }
 
         // Called by the config listener.
@@ -94,24 +98,30 @@ public class PropertyTest {
         }
     }
 
+    private SettableConfig config;
+    private DefaultPropertyFactory factory;
+
+
+    @BeforeEach
+    void setUp() {
+        config = new DefaultSettableConfig();
+        factory = DefaultPropertyFactory.from(config);
+    }
+
     @Test
     public void testServiceInitializationWithDefaultProperties() {
-        SettableConfig config = new DefaultSettableConfig();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
 
         MyService service = new MyService(factory);
 
         // Verify initial property values
         assertEquals(1, (int) service.value.get());
         assertEquals(2, (int) service.value2.get());
-        // Verify setValue() was called once for each initialization
+
         assertEquals(0, service.setValueCallsCounter.get());
     }
 
     @Test
     public void testPropertyValuesUpdateAndEffect() {
-        SettableConfig config = new DefaultSettableConfig();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
         MyService service = new MyService(factory);
 
         // Setting up properties
@@ -126,26 +136,22 @@ public class PropertyTest {
 
     @Test
     public void testBasicTypes() {
-        SettableConfig config = new DefaultSettableConfig();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
         config.setProperty("foo", "10");
         config.setProperty("shmoo", "true");
         config.setProperty("loo", CustomType.ONE_TWO);
 
-        Property<BigDecimal> bigDecimalProp = factory.getProperty("foo").asType(BigDecimal.class,
-                                                                                BigDecimal.ONE);
-        Property<BigInteger> bigIntegerProp = factory.getProperty("foo").asType(BigInteger.class,
-                                                                                BigInteger.ONE);
-        Property<Boolean> booleanProp = factory.getProperty("shmoo").asType(Boolean.class, false);
-        Property<Byte> byteProp = factory.getProperty("foo").asType(Byte.class, (byte) 0x1);
-        Property<Double> doubleProp = factory.getProperty("foo").asType(Double.class, 1.0);
-        Property<Float> floatProp = factory.getProperty("foo").asType(Float.class, 1.0f);
-        Property<Integer> intProp = factory.getProperty("foo").asType(Integer.class, 1);
-        Property<Long> longProp = factory.getProperty("foo").asType(Long.class, 1L);
-        Property<Short> shortProp = factory.getProperty("foo").asType(Short.class, (short) 1);
-        Property<String> stringProp = factory.getProperty("foo").asType(String.class, "1");
-        Property<CustomType> customTypeProp = factory.getProperty("loo").asType(CustomType.class,
-                                                                                CustomType.DEFAULT);
+        Property<BigDecimal> bigDecimalProp = factory.get("foo", BigDecimal.class);
+        Property<BigInteger> bigIntegerProp = factory.get("foo", BigInteger.class);
+        Property<Boolean> booleanProp = factory.get("shmoo", Boolean.class);
+        Property<Byte> byteProp = factory.get("foo", Byte.class);
+        Property<Double> doubleProp = factory.get("foo", Double.class);
+        Property<Float> floatProp = factory.get("foo", Float.class);
+        Property<Integer> intProp = factory.get("foo", Integer.class);
+        Property<Long> longProp = factory.get("foo", Long.class);
+        Property<Short> shortProp = factory.get("foo", Short.class);
+        Property<String> stringProp = factory.get("foo", String.class);
+        Property<CustomType> customTypeProp = factory.get("loo", CustomType.class);
+
         assertEquals(BigDecimal.TEN, bigDecimalProp.get());
         assertEquals(BigInteger.TEN, bigIntegerProp.get());
         assertEquals(true, booleanProp.get());
@@ -161,8 +167,6 @@ public class PropertyTest {
 
     @Test
     public void testCollectionTypes() {
-        SettableConfig config = new DefaultSettableConfig();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
         config.setProperty("foo", "10,13,13,20");
         config.setProperty("shmoo", "1=PT15M,0=PT0S");
 
@@ -202,8 +206,6 @@ public class PropertyTest {
 
     @Test
     public void testCollectionTypesImmutability() {
-        SettableConfig config = new DefaultSettableConfig();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
         config.setProperty("foo", "10,13,13,20");
         config.setProperty("bar", "");
         config.setProperty("baz", "a=1,b=2");
@@ -229,12 +231,9 @@ public class PropertyTest {
 
     @Test
     public void testUpdateDynamicChild() {
-        SettableConfig config = new DefaultSettableConfig();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
-
-        Property<Integer> intProp1 = factory.getProperty("foo").asInteger(1);
-        Property<Integer> intProp2 = factory.getProperty("foo").asInteger(2);
-        Property<String>  strProp  = factory.getProperty("foo").asString("3");
+        Property<Integer> intProp1 = factory.get("foo", Integer.class).orElse(1);
+        Property<Integer> intProp2 = factory.get("foo", Integer.class).orElse(2);
+        Property<String>  strProp  = factory.get("foo", String.class).orElse("3");
 
         assertEquals(1, (int)intProp1.get());
         assertEquals(2, (int)intProp2.get());
@@ -248,30 +247,21 @@ public class PropertyTest {
 
     @Test
     public void testDefaultNull() {
-        SettableConfig config = new DefaultSettableConfig();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
-
-        Property<Integer> prop = factory.getProperty("foo").asInteger(null);
+        Property<Integer> prop = factory.get("foo", Integer.class);
         assertNull(prop.get());
     }
 
     @Test
-    public void testDefault() {
-        SettableConfig config = new DefaultSettableConfig();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
-
-        Property<Integer> prop = factory.getProperty("foo").asInteger(123);
+    public void testOrElse() {
+        Property<Integer> prop = factory.get("foo", Integer.class).orElse(123);
         assertEquals(123, prop.get().intValue());
     }
 
     @Test
     public void testUpdateValue() {
-        SettableConfig config = new DefaultSettableConfig();
         config.setProperty("goo", "456");
 
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
-
-        Property<Integer> prop = factory.getProperty("foo").asInteger(123);
+        Property<Integer> prop = factory.get("foo", Integer.class).orElse(123);
         config.setProperty("foo", 1);
 
         assertEquals(1, prop.get().intValue());
@@ -286,12 +276,9 @@ public class PropertyTest {
 
     @Test
     public void testUpdateCallback() {
-        SettableConfig config = new DefaultSettableConfig();
         config.setProperty("goo", "456");
 
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
-
-        Property<Integer> prop = factory.getProperty("foo").asInteger(123);
+        Property<Integer> prop = factory.get("foo", Integer.class).orElse(123);
         final AtomicReference<Integer> current = new AtomicReference<>();
         prop.addListener(new PropertyListener<Integer>() {
             @Override
@@ -318,14 +305,10 @@ public class PropertyTest {
 
     @Test
     public void unregisterOldCallback() {
-        SettableConfig config = new DefaultSettableConfig();
-
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
-
         //noinspection unchecked
         PropertyListener<Integer> listener = Mockito.mock(PropertyListener.class);
         
-        Property<Integer> prop = factory.getProperty("foo").asInteger(1);
+        Property<Integer> prop = factory.get("foo", Integer.class);
         prop.addListener(listener);
 
         Mockito.verify(listener, Mockito.never()).accept(Mockito.anyInt());
@@ -340,9 +323,6 @@ public class PropertyTest {
     
     @Test
     public void subscribePropertyChange() {
-        SettableConfig config = new DefaultSettableConfig();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
-        
         Property<Integer> prop = factory.get("foo", String.class)
                 .map(Integer::parseInt)
                 .orElse(2)
@@ -360,14 +340,10 @@ public class PropertyTest {
     
     @Test
     public void unsubscribeOnChange() {
-        SettableConfig config = new DefaultSettableConfig();
-
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
-
         //noinspection unchecked
         Consumer<Integer> consumer = Mockito.mock(Consumer.class);
         
-        Property<Integer> prop = factory.getProperty("foo").asInteger(1);
+        Property<Integer> prop = factory.get("foo", Integer.class);
         Subscription sub = prop.onChange(consumer);
 
         Mockito.verify(consumer, Mockito.never()).accept(Mockito.anyInt());
@@ -383,9 +359,6 @@ public class PropertyTest {
     
     @Test
     public void chainedPropertyNoneSet() {
-        MapConfig config = MapConfig.builder().build();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
-
         Property<Integer> prop = factory
                 .get("first", Integer.class)
                 .orElseGet("second");
@@ -395,9 +368,6 @@ public class PropertyTest {
     
     @Test
     public void chainedPropertyDefault() {
-        SettableConfig config = new DefaultSettableConfig();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
-
         Property<Integer> prop = factory
                 .get("first", Integer.class)
                 .orElseGet("second")
@@ -408,8 +378,7 @@ public class PropertyTest {
     
     @Test
     public void chainedPropertySecondSet() {
-        MapConfig config = MapConfig.builder().put("second", 2).build();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
+        config.setProperty("second", 2);
 
         Property<Integer> prop = factory
                 .get("first", Integer.class)
@@ -421,8 +390,7 @@ public class PropertyTest {
     
     @Test
     public void chainedPropertyFirstSet() {
-        MapConfig config = MapConfig.builder().put("first", 1).build();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
+        config.setProperty("first", 1);
 
         Property<Integer> prop = factory
                 .get("first", Integer.class)
@@ -434,9 +402,7 @@ public class PropertyTest {
     
     @Test
     public void chainedPropertyNotification() {
-        SettableConfig config = new DefaultSettableConfig();
         config.setProperty("first", 1);
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
 
         //noinspection unchecked
         Consumer<Integer> consumer = Mockito.mock(Consumer.class);
@@ -471,12 +437,37 @@ public class PropertyTest {
         config.clearProperty("second");
         Mockito.verify(consumer, Mockito.times(1)).accept(3);
     }
+
+    @Test
+    public void testBadValue() {
+        config.setProperty("first", "bad");
+
+        Property<Integer> prop = factory
+                .get("first", Integer.class);
+
+        ParseException pe = assertThrows(ParseException.class, prop::get);
+        assertThat(pe.getMessage(), allOf(
+                containsString("'first'"),
+                containsString("'bad'")));
+    }
+
+    @Test
+    public void chainedPropertyBadValue() {
+        config.setProperty("first", "bad");
+
+        Property<Integer> prop = factory
+                .get("first", Integer.class)
+                .orElse(3);
+
+        ParseException pe = assertThrows(ParseException.class, prop::get);
+        assertThat(pe.getMessage(), allOf(
+                containsString("'first'"),
+                containsString("'bad'")));
+    }
     
     @Test
     public void testCache() {
-        SettableConfig config = new DefaultSettableConfig();
         config.setProperty("foo", "1");
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
 
         // This can't be a lambda because then mockito can't subclass it to spy on it :-P
         //noinspection Convert2Lambda,Anonymous2MethodRef
@@ -512,51 +503,15 @@ public class PropertyTest {
     
     @Test
     public void mapDiscardsType() {
-        MapConfig config = MapConfig.builder().build();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
-
         assertThrows(IllegalStateException.class, () -> factory
                 .get("first", String.class)
                 .orElseGet("second")
                 .map(Integer::parseInt)
                 .orElseGet("third"));
     }
-    
-    @Test
-    public void customMappingWithDefault() {
-        Config config = MapConfig.builder().build();
-        PropertyFactory factory = DefaultPropertyFactory.from(config);
-
-        Integer value = factory.getProperty("a").asType(Integer::parseInt, "1").get();
-        assertEquals(1, value.intValue());
-    }
-    
-    @Test
-    public void customMapping() {
-        Config config = MapConfig.builder()
-                .put("a", "2")
-                .build();
-        PropertyFactory factory = DefaultPropertyFactory.from(config);
-
-        Integer value = factory.getProperty("a").asType(Integer::parseInt, "1").get();
-        assertEquals(2, value.intValue());
-    }
-
-    @Test
-    public void customMappingWithError() {
-        Config config = MapConfig.builder()
-                .put("a", "###bad_integer_value###")
-                .build();
-        PropertyFactory factory = DefaultPropertyFactory.from(config);
-
-        Integer value = factory.getProperty("a").asType(Integer::parseInt, "1").get();
-        assertEquals(1, value.intValue());
-    }
 
     @Test
     public void getListShouldReuseKey() {
-        SettableConfig config = new DefaultSettableConfig();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
         config.setProperty("geralt", "of,rivia");
 
         List<String> expectedList = Arrays.asList("of", "rivia");
@@ -572,8 +527,6 @@ public class PropertyTest {
 
     @Test
     public void getSetShouldReuseKey() {
-        SettableConfig config = new DefaultSettableConfig();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
         config.setProperty("geralt", "of,rivia");
 
         Set<String> expectedSet = new HashSet<>(Arrays.asList("of", "rivia"));
@@ -589,8 +542,6 @@ public class PropertyTest {
 
     @Test
     public void getMapShouldReuseKey() {
-        SettableConfig config = new DefaultSettableConfig();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
         config.setProperty("geralt", "of=rivia");
 
         Map<String, String> expectedMap = new HashMap<>();
@@ -607,8 +558,6 @@ public class PropertyTest {
 
     @Test
     public void getCollectionShouldNotReuseKeyWithDifferentTypes() {
-        SettableConfig config = new DefaultSettableConfig();
-        DefaultPropertyFactory factory = DefaultPropertyFactory.from(config);
         config.setProperty("geralt", "of,rivia");
 
         Property<List<String>> firstReference = factory.getList("geralt", String.class);
@@ -648,5 +597,39 @@ public class PropertyTest {
                             + "- this can cause memory leaks and inefficient allocations: %s",
                     firstReference, secondReference, shouldMatch ? "equal" : "not equal", e.getMessage()));
         }
+    }
+
+    // Tests for the implementation of the deprecated PropertyContainer interface
+
+    @Test
+    public void testPropertyContainer() {
+        PropertyContainer container = factory.getProperty("foo");
+        Property<Integer> prop = container.asInteger(1);
+
+        // Get the default
+        assertEquals(1, prop.get().intValue());
+        // Read via the custom parser feature
+        assertEquals(1, container.asType(Integer::parseInt, "1").get().intValue());
+
+        // Set to a new value, as a string
+        config.setProperty("foo", "2");
+        assertEquals(2, prop.get().intValue());
+
+        // Read via the custom parser feature
+        assertEquals(2, container.asType(Integer::parseInt, "1").get().intValue());
+
+        // Set to a new value, as a number
+        config.setProperty("foo", 3);
+        assertEquals(3, prop.get().intValue());
+
+        // Set to an invalid value
+        config.setProperty("foo", "notAnInt");
+        ParseException pe = assertThrows(ParseException.class, prop::get);
+        assertThat(pe.getMessage(), allOf(containsString("foo"), containsString("notAnInt")));
+
+        // Using the custom parser feature should still return a ParseException. Older versions of the
+        // code would silently return the default value instead.
+        ParseException pe2 = assertThrows(ParseException.class, () -> container.asType(Integer::parseInt, "1").get());
+        assertThat(pe2.getMessage(), allOf(containsString("foo"), containsString("notAnInt")));
     }
 }
