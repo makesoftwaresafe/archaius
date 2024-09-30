@@ -13,13 +13,15 @@ import org.slf4j.LoggerFactory;
 import java.lang.reflect.Type;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicStampedReference;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -68,83 +70,7 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
     @Deprecated
     @SuppressWarnings("deprecation")
     public PropertyContainer getProperty(String propName) {
-        return new PropertyContainer() {
-            @Override
-            public Property<String> asString(String defaultValue) {
-                return get(propName, String.class).orElse(defaultValue);
-            }
-
-            @Override
-            public Property<Integer> asInteger(Integer defaultValue) {
-                return get(propName, Integer.class).orElse(defaultValue);
-            }
-
-            @Override
-            public Property<Long> asLong(Long defaultValue) {
-                return get(propName, Long.class).orElse(defaultValue);
-            }
-
-            @Override
-            public Property<Double> asDouble(Double defaultValue) {
-                return get(propName, Double.class).orElse(defaultValue);
-            }
-
-            @Override
-            public Property<Float> asFloat(Float defaultValue) {
-                return get(propName, Float.class).orElse(defaultValue);
-            }
-
-            @Override
-            public Property<Short> asShort(Short defaultValue) {
-                return get(propName, Short.class).orElse(defaultValue);
-            }
-
-            @Override
-            public Property<Byte> asByte(Byte defaultValue) {
-                return get(propName, Byte.class).orElse(defaultValue);
-            }
-
-            @Override
-            public Property<Boolean> asBoolean(Boolean defaultValue) {
-                return get(propName, Boolean.class).orElse(defaultValue);
-            }
-
-            @Override
-            public Property<BigDecimal> asBigDecimal(BigDecimal defaultValue) {
-                return get(propName, BigDecimal.class).orElse(defaultValue);
-            }
-
-            @Override
-            public Property<BigInteger> asBigInteger(BigInteger defaultValue) {
-                return get(propName, BigInteger.class).orElse(defaultValue);
-            }
-
-            @Override
-            public <T> Property<T> asType(Class<T> type, T defaultValue) {
-                return get(propName, type).orElse(defaultValue);
-            }
-
-            @Override
-            public <T> Property<T> asType(Function<String, T> mapper, String defaultValue) {
-                T typedDefaultValue = applyOrThrow(mapper, defaultValue);
-                return getFromSupplier(propName, null, () -> {
-                    String value = config.getString(propName, null);
-                    if (value != null) {
-                            return applyOrThrow(mapper, value);
-                    }
-                    
-                    return typedDefaultValue;
-                });
-            }
-
-            private <T> T applyOrThrow(Function<String, T> mapper, String value) {
-                try {
-                    return mapper.apply(value);
-                } catch (RuntimeException e) {
-                    throw new ParseException("Invalid value '" + value + "' for property '" + propName + "'.", e);
-                }
-            }
-        };
+        return new PropertyContainerImpl(propName);
     }
     
     @Override
@@ -201,42 +127,103 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
         return (Property<T>) properties.computeIfAbsent(keyAndType, (ignore) -> new PropertyImpl<>(keyAndType, supplier));
     }
 
+    /**
+     * Implementation of the Property interface. This class looks at the factory's masterVersion on each read to
+     * determine if the cached parsed values is stale.
+     */
     private final class PropertyImpl<T> implements Property<T> {
+
         private final KeyAndType<T> keyAndType;
         private final Supplier<T> supplier;
-        private final AtomicStampedReference<T> cache = new AtomicStampedReference<>(null, -1);
-        private final ConcurrentMap<PropertyListener<?>, Subscription> oldSubscriptions = new ConcurrentHashMap<>();
+
+        // Caching machinery. Writes to cachedValue are guarded by updateLock. Reads can be unguarded because the field is volatile.
+        private final ReentrantLock updateLock = new ReentrantLock();
+        private volatile CachedValue<T> cachedValue;
+
+        // Keep track of old-style listeners so we can unsubscribe them when they are removed
+        // Field is initialized on demand only if it's actually needed.
+        // Access is synchronized on _this_.
+        private Map<PropertyListener<?>, Subscription> oldSubscriptions;
         
         public PropertyImpl(KeyAndType<T> keyAndType, Supplier<T> supplier) {
             this.keyAndType = keyAndType;
             this.supplier = supplier;
         }
-        
+
+        /**
+         * Get the current value of the property. If the value is not cached or the cache is stale, the value is
+         * updated from the supplier. If the supplier throws an exception, the exception is logged and rethrown.
+         * <p>
+         * This method is intended to provide the following semantics:
+         * <ul>
+         *     <li>Changes to a property are atomic.</li>
+         *     <li>Updates from the backing Config are eventually consistent.</li>
+         *     <li>When multiple updates happen then "last one wins", as ordered by calls to the PropertyFactory's invalidate() method.</li>
+         *     <li>A property only changes value *after* a call to invalidate()</li>
+         *     <li>Updates *across* different properties are not transactional. A thread may see (newA, oldB) while a different concurrent thread sees (oldA, newB)</li>
+         * </ul>
+         * @throws RuntimeException if the supplier throws an exception
+         */
         @Override
         public T get() {
-            int[] cacheVersion = new int[1];
-            T currentValue = cache.get(cacheVersion);
-            int latestVersion  = masterVersion.get();
+            int currentMasterVersion = masterVersion.get();
 
-            if (cacheVersion[0] == latestVersion) {
-                return currentValue;
-            }
-
-            try {
-                T newValue = supplier.get();
-
-                if (cache.compareAndSet(currentValue, newValue, cacheVersion[0], latestVersion)) {
-                    // newValue could be stale here already, if the cache was updated *again* between the CAS and this line
-                    // We don't care enough about this edge case to fix it.
-                    return newValue;
+            if (cachedValue != null) {
+                // Happy path. We have an up-to-date cached value, so just return that
+                if (cachedValue.version >= currentMasterVersion) {
+                    return cachedValue.value;
                 }
 
-            } catch (RuntimeException e) {
-                LOG.error("Unable to get current version of property '{}'", keyAndType.key, e);
-                throw e; // Rethrow the exception, our caller should know that the property is not available
+                // The cached value is stale, someone needs to update it
+                if (!updateLock.tryLock()) {
+                    // The lock is taken, so another thread is already working on the update.
+                    // We can just return the stale value. Since cachedValue is a volatile, it may even have gotten updated
+                    // by now. That's fine too. :-)
+                    return cachedValue.value;
+                }
+
+                // If we're here we have the lock and we skip past the else ...
+
+            } else {
+
+                // There is no cached value at all, not even stale, so we MUST wait until it's updated, either by us
+                // or by another thread. So no tryLock here, we HAVE to block until the lock is available.
+                updateLock.lock();
+
+                // Done waiting, got the lock. But maybe someone did the update while we were waiting for the lock?
+                if (cachedValue != null) {
+                    // Yes! We can just return the value that was computed by that other thread (and release the lock before leaving!)
+                    try {
+                        return cachedValue.value;
+                    } finally {
+                        updateLock.unlock();
+                    }
+                }
+
+                // Nope, still null. Let's proceed.
             }
 
-            return cache.getReference();
+            // At this point, we have the lock AND there's no valid cache. The job of updating falls on us.
+            try {
+                // Get the new value from the supplier. This call could fail.
+                T newValue = supplier.get();
+
+                // We successfully got the new value!
+                // Atomically update both the value and the version
+                cachedValue = new CachedValue<>(newValue, currentMasterVersion);
+                // And return
+                return newValue;
+
+            } catch (RuntimeException e) {
+                // Oh, no, something went wrong while trying to get the new value. Log the error and rethrow the exception
+                // so our caller knows there's a problem. We leave the cache unchanged. Next caller will try again.
+                LOG.error("Unable to get current version of property '{}'", keyAndType.key, e);
+                throw e;
+            } finally {
+
+                // Success or not, release the lock before leaving.
+                updateLock.unlock();
+            }
         }
 
         @Override
@@ -273,8 +260,11 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
         @Deprecated
         @Override
         @SuppressWarnings("deprecation")
-        public void addListener(PropertyListener<T> listener) {
-            oldSubscriptions.put(listener, onChange(listener));
+        public synchronized void addListener(PropertyListener<T> listener) {
+            if (oldSubscriptions == null) {
+                oldSubscriptions = new HashMap<>();
+            }
+            oldSubscriptions.put(listener, subscribe(listener));
         }
 
         /**
@@ -284,7 +274,11 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
         @Deprecated
         @Override
         @SuppressWarnings("deprecation")
-        public void removeListener(PropertyListener<T> listener) {
+        public synchronized void removeListener(PropertyListener<T> listener) {
+            if (oldSubscriptions == null) {
+                return;
+            }
+
             Subscription subscription = oldSubscriptions.remove(listener);
             if (subscription != null) {
                 subscription.unsubscribe();
@@ -326,10 +320,14 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
 
         @Override
         public String toString() {
-            return "Property [Key=" + getKey() + "; value="+get() + "]";
+            return "Property [Key=" + keyAndType + "; cachedValue="+ cachedValue + "]";
         }
     }
 
+    /**
+     * Holder for a pair of property name and type.  Used as a key in the properties map.
+     * @param <T>
+     */
     private static final class KeyAndType<T> {
         private final String key;
         private final Type type;
@@ -382,6 +380,118 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
                     "key='" + key + '\'' +
                     ", type=" + type +
                     '}';
+        }
+    }
+
+    /** A holder for a cached value and the version of the master config at which it was updated. */
+    private static final class CachedValue<T> {
+        final T value;
+        final int version;
+
+        CachedValue(T value, int version) {
+            this.value = value;
+            this.version = version;
+        }
+
+        @Override
+        public String toString() {
+            return "CachedValue{" +
+                    "value=" + value +
+                    ", version=" + version +
+                    '}';
+        }
+    }
+
+    /**
+     * Implements the deprecated PropertyContainer interface, for backwards compatibility.
+     */
+    @SuppressWarnings("deprecation")
+    private final class PropertyContainerImpl implements PropertyContainer {
+        private final String propName;
+
+        public PropertyContainerImpl(String propName) {
+            this.propName = propName;
+        }
+
+        @Override
+        public Property<String> asString(String defaultValue) {
+            return get(propName, String.class).orElse(defaultValue);
+        }
+
+        @Override
+        public Property<Integer> asInteger(Integer defaultValue) {
+            return get(propName, Integer.class).orElse(defaultValue);
+        }
+
+        @Override
+        public Property<Long> asLong(Long defaultValue) {
+            return get(propName, Long.class).orElse(defaultValue);
+        }
+
+        @Override
+        public Property<Double> asDouble(Double defaultValue) {
+            return get(propName, Double.class).orElse(defaultValue);
+        }
+
+        @Override
+        public Property<Float> asFloat(Float defaultValue) {
+            return get(propName, Float.class).orElse(defaultValue);
+        }
+
+        @Override
+        public Property<Short> asShort(Short defaultValue) {
+            return get(propName, Short.class).orElse(defaultValue);
+        }
+
+        @Override
+        public Property<Byte> asByte(Byte defaultValue) {
+            return get(propName, Byte.class).orElse(defaultValue);
+        }
+
+        @Override
+        public Property<Boolean> asBoolean(Boolean defaultValue) {
+            return get(propName, Boolean.class).orElse(defaultValue);
+        }
+
+        @Override
+        public Property<BigDecimal> asBigDecimal(BigDecimal defaultValue) {
+            return get(propName, BigDecimal.class).orElse(defaultValue);
+        }
+
+        @Override
+        public Property<BigInteger> asBigInteger(BigInteger defaultValue) {
+            return get(propName, BigInteger.class).orElse(defaultValue);
+        }
+
+        @Override
+        public <T> Property<T> asType(Class<T> type, T defaultValue) {
+            return get(propName, type).orElse(defaultValue);
+        }
+
+        @Override
+        public <T> Property<T> asType(Function<String, T> mapper, String defaultValue) {
+            T typedDefaultValue = applyOrThrow(mapper, defaultValue);
+            return getFromSupplier(propName, null, () -> {
+                String value = config.getString(propName, null);
+                if (value != null) {
+                        return applyOrThrow(mapper, value);
+                }
+
+                return typedDefaultValue;
+            });
+        }
+
+        private <T> T applyOrThrow(Function<String, T> mapper, String value) {
+            try {
+                return mapper.apply(value);
+            } catch (RuntimeException e) {
+                throw new ParseException("Invalid value '" + value + "' for property '" + propName + "'.", e);
+            }
+        }
+
+        @Override
+        public String toString() {
+            return "PropertyContainer [name=" + propName + "]";
         }
     }
 }

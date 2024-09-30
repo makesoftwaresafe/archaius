@@ -20,7 +20,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
- * API for composeable property access with optional chaining with default value support
+ * API for composable property access with optional chaining with default value support
  * as well as change notification.
  * 
  * A {@link PropertyRepository} implementation normally implements some level of caching
@@ -44,15 +44,15 @@ import java.util.function.Supplier;
  */
 public interface Property<T> extends Supplier<T> {
     /**
-     * Token returned when calling onChange through which change notification can be
-     * unsubscribed.  
+     * Token returned when calling {@link #subscribe(Consumer)} or {@link #onChange(Consumer)} through which change
+     * notification can be unsubscribed.
      */
     interface Subscription {
         void unsubscribe();
     }
     
     /**
-     * Return the most recent value of the property.  
+     * Return the most recent value of the property.
      * 
      * @return  Most recent value for the property
      */
@@ -60,32 +60,30 @@ public interface Property<T> extends Supplier<T> {
     T get();
 
     /**
-     * Add a listener that will be called whenever the property value changes
-     * @param listener
+     * Add a listener that will be called whenever the property value changes.
+     * @implNote Implementors of this interface MUST override this method or {@link #subscribe(Consumer)}.
+     * @deprecated Use {@link Property#subscribe(Consumer)} instead
      */
     @Deprecated
     default void addListener(PropertyListener<T> listener) {
-        onChange(new Consumer<T>() {
-            @Override
-            public void accept(T t) {
-                listener.accept(t);
-            }
-        });
+        // Call subscribe for backwards compatibility.
+        // TODO: This behavior should be removed soon, because it causes a loop that implementors must work around.
+        subscribe(listener);
     }
 
     /**
      * Remove a listener previously registered by calling addListener
-     * @param listener
+     * @deprecated Use the {@link Subscription} object returned by {@link Property#subscribe(Consumer)} instead.
      */
     @Deprecated
     default void removeListener(PropertyListener<T> listener) {}
     
     /**
-     * @deprecated Use {@link Property#subscribe(Consumer)}
-     * @param consumer
+     * @deprecated Use {@link Property#subscribe(Consumer)} instead.
      */
     @Deprecated
     default Subscription onChange(Consumer<T> consumer) {
+        // Call subscribe for backwards compatibility
         return subscribe(consumer);
     }
     
@@ -95,17 +93,13 @@ public interface Property<T> extends Supplier<T> {
      * since the notification only applies to the state of the chained property
      * up until this point. Changes to subsequent Property objects returned from {@link Property#orElse} 
      * or {@link Property#map(Function)} will not trigger calls to this consumer.
-
-     * @param consumer
+     *
+     * @implNote Implementors of this interface MUST override this method or {@link #addListener(PropertyListener)}
+     *   to break a circular loop between the default implementations.
      * @return Subscription that may be unsubscribed to no longer get change notifications
      */
     default Subscription subscribe(Consumer<T> consumer) {
-        PropertyListener<T> listener = new PropertyListener<T>() {
-            @Override
-            public void onChange(T value) {
-                consumer.accept(value);
-            }
-        };
+        PropertyListener<T> listener = (PropertyListener<T>) consumer;
         
         addListener(listener);
         return () -> removeListener(listener);
@@ -114,7 +108,6 @@ public interface Property<T> extends Supplier<T> {
     /**
      * Create a new Property object that will return the specified defaultValue if
      * this object's property is not found.
-     * @param defaultValue
      * @return Newly constructed Property object
      */
     default Property<T> orElse(T defaultValue) {
@@ -125,7 +118,6 @@ public interface Property<T> extends Supplier<T> {
      * Create a new Property object that will fetch the property backed by the provided
      * key.  The return value of the supplier will be cached until the configuration has changed
      * 
-     * @param key
      * @return Newly constructed Property object
      */
     default Property<T> orElseGet(String key) {
@@ -139,7 +131,6 @@ public interface Property<T> extends Supplier<T> {
      * 
      * Note that no orElseGet() calls may be made on a mapped property
      * 
-     * @param delegate
      * @return Newly constructed Property object
      */
     default <S> Property<S> map(Function<T, S> mapper) {
