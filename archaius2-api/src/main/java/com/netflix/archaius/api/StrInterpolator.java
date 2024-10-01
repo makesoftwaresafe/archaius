@@ -26,7 +26,11 @@ package com.netflix.archaius.api;
  *  interpolator.create(lookup).resolve("123-${foo}") -> 123-abc
  * }
  * </pre>
- * 
+ *
+ * @implSpec Implementations of this interface MUST be idempotent (as long as the backing Config remains unchanged).
+ *    Failing to do so will result in correctness errors.
+ *    Implementations of this interface SHOULD also be cheap to execute. Expensive or blocking operations are to be
+ *    avoided since they can potentially cause large delays in property resolution.
  * @author elandau
  *
  */
@@ -38,7 +42,7 @@ public interface StrInterpolator {
      * 
      * @author elandau
      */
-    public interface Lookup {
+     interface Lookup {
         String lookup(String key);
     }
 
@@ -47,14 +51,11 @@ public interface StrInterpolator {
      * @author elandau
      *
      */
-    public interface Context {
+     interface Context {
         /**
          * Resolve a string with replaceable variables using the provided map to lookup replacement
          * values.  The implementation should deal with nested replacements and throw an exception
          * for infinite recursion. 
-         * 
-         * @param value
-         * @return
          */
         String resolve(String value);
     }
