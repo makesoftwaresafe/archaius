@@ -20,6 +20,9 @@ import java.lang.reflect.Type;
 /**
  * API for decoding properties to arbitrary types.
  *
+ * @implSpec Implementations of this interface MUST be idempotent. Failing to do so will result in correctness errors.
+ *    Implementations of this interface SHOULD also be cheap to execute. Expensive or blocking operations are to be
+ *    avoided since they can potentially cause large delays in property resolution.
  * @author spencergibb
  */
 public interface Decoder {
