@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.IntConsumer;
 
 import com.netflix.archaius.api.PropertyContainer;
 import com.netflix.archaius.exceptions.ParseException;
@@ -464,7 +465,104 @@ public class PropertyTest {
                 containsString("'first'"),
                 containsString("'bad'")));
     }
-    
+
+    @Test
+    public void testSubscriptionsBadValue() {
+        config.setProperty("first", "2");
+        Property<Integer> integerProperty = factory
+                .get("first", Integer.class)
+                .orElse(3);
+        Property<String> stringProperty = factory.get("first", String.class);
+
+        Consumer<Integer> integerConsumer = unexpected -> fail("Consumer should not be called. Received argument: " + unexpected);
+        AtomicReference<String> stringConsumer = new AtomicReference<>();
+
+        // Order is important here! We want the string subscription to be called *after* trying to call the integer
+        // subscription, which should fail because "a" can not be decoded as an integer
+        integerProperty.subscribe(integerConsumer);
+        stringProperty.subscribe(stringConsumer::set);
+
+        // Initial value for the property is 2
+        assertEquals(2, integerProperty.get().intValue());
+        assertEquals("2", stringProperty.get());
+
+        // Set it to something that's not an integer
+        config.setProperty("first", "a");
+
+        // The integer consumer is never called
+        // The string consumer *is* called with the new value
+        assertEquals("a", stringConsumer.get());
+    }
+
+    @Test
+    public void testSubscriptionsNullValue() {
+        config.setProperty("first", "2");
+        Property<Integer> integerProperty = factory.get("first", Integer.class);
+        Property<Integer> intWithDefaultProperty = factory.get("first", Integer.class).orElse(3);
+        Property<String> stringProperty = factory.get("first", String.class);
+
+        IntConsumer primitiveIntConsumer = unexpected -> fail("Consumer should not be called. Received argument: " + unexpected);
+        AtomicInteger primitiveIntConsumerForPropertyWithDefault = new AtomicInteger(1000);
+        AtomicReference<Integer> boxedIntConsumer = new AtomicReference<>(1000);
+        AtomicReference<String> stringConsumer = new AtomicReference<>("initial");
+
+        // Order is important here! We want the string subscription to be called *after* trying to call the integer
+        // subscription, which should fail because null can't be cast to a primitive int.
+        integerProperty.subscribe(primitiveIntConsumer::accept);
+        intWithDefaultProperty.subscribe(primitiveIntConsumerForPropertyWithDefault::set);
+        integerProperty.subscribe(boxedIntConsumer::set);
+        stringProperty.subscribe(stringConsumer::set);
+
+        // Initial value for the property is 2
+        assertEquals(2, integerProperty.get().intValue());
+        assertEquals("2", stringProperty.get());
+
+        // Set it to something that's not an integer
+        config.setProperty("first", null);
+
+        // The integer consumer is never called
+        // The string consumer *is* called with the new value
+        assertNull(stringConsumer.get());
+        // ... the boxed integer consumer also gets the new value
+        assertNull(boxedIntConsumer.get());
+        // ... finally, the consumer for the property with a default is also called and receives the default value
+        assertEquals(3, primitiveIntConsumerForPropertyWithDefault.get());
+    }
+
+    @Test
+    public void testSubscriptionsConsumerFails() {
+        config.setProperty("first", "2");
+        Property<Integer> integerProperty = factory
+                .get("first", Integer.class)
+                .orElse(3);
+        Property<String> stringProperty = factory.get("first", String.class);
+
+        AtomicReference<Integer> integerConsumerArgument = new AtomicReference<>();
+        Consumer<Integer> faultyConsumer = value -> {
+            integerConsumerArgument.set(value); // Save argument for later verification
+            throw new RuntimeException("I'm a bad consumer");
+        };
+        AtomicReference<String> stringConsumer = new AtomicReference<>();
+
+        // Order is important here! We want the string subscription to be called *after* trying to call the integer
+        // subscription, which should fail because "a" can not be decoded as an integer
+        integerProperty.subscribe(faultyConsumer);
+        stringProperty.subscribe(stringConsumer::set);
+
+        // Initial value for the property is 2
+        assertEquals(2, integerProperty.get().intValue());
+        assertEquals("2", stringProperty.get());
+
+        // Set it to something that's not an integer
+        config.setProperty("first", "5");
+
+        // The faulty consumer was called
+        assertEquals(5, integerConsumerArgument.get().intValue());
+        // The string consumer also was called.
+        assertEquals("5", stringConsumer.get());
+    }
+
+
     @Test
     public void testCache() {
         config.setProperty("foo", "1");
