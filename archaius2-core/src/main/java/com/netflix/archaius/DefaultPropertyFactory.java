@@ -224,19 +224,24 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
                 private T current = get();
                 @Override
                 public synchronized void run() {
-                    T newValue = get();
-                    if (current == newValue && current == null) {
-                        return;
-                    } else if (current == null) {
-                        current = newValue;
-                    } else if (newValue == null) {
-                        current = null;
-                    } else if (current.equals(newValue)) {
-                        return;
-                    } else {
-                        current = newValue;
+                    try {
+                        T newValue = get();
+                        if (current == newValue && current == null) {
+                            return;
+                        } else if (current == null) {
+                            current = newValue;
+                        } else if (newValue == null) {
+                            current = null;
+                        } else if (current.equals(newValue)) {
+                            return;
+                        } else {
+                            current = newValue;
+                        }
+                        consumer.accept(current);
+                    } catch (RuntimeException e) {
+                        LOG.error("Unable to notify subscriber about update to property '{}'. Subscriber: {}",
+                                keyAndType, consumer, e);
                     }
-                    consumer.accept(current);
                 }
             };
             
