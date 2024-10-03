@@ -34,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/** This is ALSO a test of many of the methods in the AbstractConfig super class. */
 public class MapConfigTest {
     private final MapConfig config = MapConfig.builder()
             .put("str", "value")

@@ -25,6 +25,8 @@ import com.netflix.archaius.api.StrInterpolator.Lookup;
 import com.netflix.archaius.exceptions.ParseException;
 import com.netflix.archaius.interpolate.CommonsStrInterpolator;
 import com.netflix.archaius.interpolate.ConfigStrLookup;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Type;
 import java.math.BigDecimal;
@@ -38,6 +40,7 @@ import java.util.function.BiConsumer;
 
 public abstract class AbstractConfig implements Config {
 
+    private static final Logger log = LoggerFactory.getLogger(AbstractConfig.class);
     private final CopyOnWriteArrayList<ConfigListener> listeners = new CopyOnWriteArrayList<>();
     private final Lookup lookup;
     private Decoder decoder;
@@ -109,27 +112,59 @@ public abstract class AbstractConfig implements Config {
         listeners.remove(listener);
     }
 
+    /**
+     * Notify all listeners that the child configuration has been updated.
+     * @implNote This implementation calls listeners in the order they were added. This is NOT part of the API contract.
+     * @implSpec Implementors must make sure that if a listener fails it will not prevent other listeners from being
+     *   called. In practice this means that exceptions must be caught (and probably logged), but not rethrown.
+     */
     protected void notifyConfigUpdated(Config child) {
         for (ConfigListener listener : listeners) {
-            listener.onConfigUpdated(child);
+            callSafely(() -> listener.onConfigUpdated(child));
         }
     }
 
+    /**
+     * Notify all listeners that the child configuration encountered an error
+     * @implNote This implementation calls listeners in the order they were added. This is NOT part of the API contract.
+     * @implSpec Implementors must make sure that if a listener fails it will not prevent other listeners from being
+     *   called. In practice this means that exceptions must be caught (and probably logged), but not rethrown.
+     */
     protected void notifyError(Throwable t, Config child) {
         for (ConfigListener listener : listeners) {
-            listener.onError(t, child);
+            callSafely(() -> listener.onError(t, child));
         }
     }
 
+    /**
+     * Notify all listeners that a child configuration has been added.
+     * @implNote This implementation calls listeners in the order they were added. This is NOT part of the API contract.
+     * @implSpec Implementors must make sure that if a listener fails it will not prevent other listeners from being
+     *   called. In practice this means that exceptions must be caught (and probably logged), but not rethrown.
+     */
     protected void notifyConfigAdded(Config child) {
         for (ConfigListener listener : listeners) {
-            listener.onConfigAdded(child);
+            callSafely(() -> listener.onConfigAdded(child));
         }
     }
 
+    /**
+     * Notify all listeners that the child configuration has been removed.
+     * @implNote This implementation calls listeners in the order they were added. This is NOT part of the API contract.
+     * @implSpec Implementors must make sure that if a listener fails it will not prevent other listeners from being
+     *   called. In practice this means that exceptions must be caught (and probably logged), but not rethrown.
+     */
     protected void notifyConfigRemoved(Config child) {
         for (ConfigListener listener : listeners) {
-            listener.onConfigRemoved(child);
+            callSafely(() -> listener.onConfigRemoved(child));
+        }
+    }
+
+    private void callSafely(Runnable r) {
+        try {
+            r.run();
+        } catch (RuntimeException t) {
+            log.error("A listener on config {} failed when receiving a notification. listener={}", this, r, t);
         }
     }
 

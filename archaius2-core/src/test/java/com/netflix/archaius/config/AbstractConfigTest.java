@@ -24,6 +24,8 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.function.BiConsumer;
 
+import com.netflix.archaius.api.Config;
+import com.netflix.archaius.api.ConfigListener;
 import com.netflix.archaius.exceptions.ParseException;
 import org.junit.jupiter.api.Test;
 
@@ -33,6 +35,8 @@ import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 public class AbstractConfigTest {
 
@@ -180,5 +184,33 @@ public class AbstractConfigTest {
         // Widened types in wrappers
         assertEquals(42L, config.get(Long.class, "int"));
         assertEquals(42L, config.get(Long.class, "byte"));
+    }
+
+    @Test
+    public void testListeners() {
+        ConfigListener goodListener = mock(ConfigListener.class, "goodListener");
+        ConfigListener alwaysFailsListener = mock(ConfigListener.class, invocation -> { throw new RuntimeException("This listener fails on purpose"); });
+        ConfigListener secondGoodListener = mock(ConfigListener.class, "secondGoodListener");
+        RuntimeException mockError = new RuntimeException("Mock error");
+
+        Config mockChildConfig = mock(Config.class);
+
+        config.addListener(alwaysFailsListener);
+        config.addListener(goodListener);
+        config.addListener(secondGoodListener);
+
+        config.notifyConfigUpdated(mockChildConfig);
+        config.notifyConfigAdded(mockChildConfig);
+        config.notifyConfigRemoved(mockChildConfig);
+        config.notifyError(mockError, mockChildConfig);
+
+        // All 3 listeners should receive all notifications (In order, actually, but we should not verify that
+        // because it's not part of the contract).
+        for (ConfigListener listener : Arrays.asList(goodListener, alwaysFailsListener, secondGoodListener)) {
+            verify(listener).onConfigUpdated(mockChildConfig);
+            verify(listener).onConfigAdded(mockChildConfig);
+            verify(listener).onConfigRemoved(mockChildConfig);
+            verify(listener).onError(mockError, mockChildConfig);
+        }
     }
 }
