@@ -42,7 +42,7 @@ import java.util.stream.Collectors;
 /**
  * Factory for binding a configuration interface to properties in a {@link PropertyFactory}
  * instance.  Getter methods on the interface are mapped by naming convention
- * by the property name may be overridden using the @PropertyName annotation.
+ * by the property name or may be overridden using the @{@link PropertyName} annotation.
  * <p>
  * For example,
  * <pre>
@@ -52,11 +52,14 @@ import java.util.stream.Collectors;
  *    int getTimeout();     // maps to "foo.timeout"
  *
  *    String getName();     // maps to "foo.name"
+ *
+ *    @PropertyName(name="bar")
+ *    String getSomeOtherName();  // maps to "foo.bar"
  * }
  * }
  * </pre>
  *
- * Default values may be set by adding a {@literal @}DefaultValue with a default value string.  Note
+ * Default values may be set by adding a {@literal @}{@link DefaultValue} with a default value string.  Note
  * that the default value type is a string to allow for interpolation.  Alternatively, methods can
  * provide a default method implementation.  Note that {@literal @}DefaultValue cannot be added to a default
  * method as it would introduce ambiguity as to which mechanism wins.
@@ -82,7 +85,7 @@ import java.util.stream.Collectors;
  * }
  * </pre>
  * 
- * To override the prefix in {@literal @}Configuration or provide a prefix when there is no 
+ * To override the prefix in {@literal @}{@link Configuration} or provide a prefix when there is no
  * {@literal @}Configuration annotation simply pass in a prefix in the call to newProxy.
  * 
  * <pre>
@@ -92,7 +95,10 @@ import java.util.stream.Collectors;
  * </pre>
  * 
  * By default, all properties are dynamic and can therefore change from call to call.  To make the
- * configuration static set the immutable attributes of @Configuration to true.
+ * configuration static set {@link Configuration#immutable()}  to true.  Creation of an immutable configuration
+ * will fail if the interface contains parametrized methods or methods that return primitive types and do not have a
+ * value set at the moment of creation, from either the underlying config, a {@link DefaultValue} annotation, or a
+ * default method implementation.
  * <p>
  * Note that an application should normally have just one instance of ConfigProxyFactory
  * and PropertyFactory since PropertyFactory caches {@link com.netflix.archaius.api.Property} objects.
@@ -245,7 +251,8 @@ public class ConfigProxyFactory {
 
                 if (immutable) {
                     // Cache the current value of the property and always return that.
-                    // Note that this will fail for parameterized properties!
+                    // Note that this will fail for parameterized properties and for primitive-valued methods
+                    // with no value set!
                     Object value = methodInvokerHolder.invoker.invoke(new Object[]{});
                     invokers.put(method, (args) -> value);
                 } else {
@@ -296,7 +303,7 @@ public class ConfigProxyFactory {
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private <T> MethodInvokerHolder buildInvokerForMethod(Class<T> type, String prefix, Method m, T proxyObject, boolean immutable) {
+    private <T> MethodInvokerHolder buildInvokerForMethod(Class<T> proxyObjectType, String prefix, Method m, T proxyObject, boolean immutable) {
         try {
 
             final Class<?> returnType = m.getReturnType();
@@ -304,16 +311,8 @@ public class ConfigProxyFactory {
             final String propName = getPropertyName(prefix, m, nameAnnot);
 
             // A supplier for the value to be returned when the method's associated property is not set
-            final Function defaultValueSupplier;
-
-            if (m.getAnnotation(DefaultValue.class) != null) {
-                defaultValueSupplier = createAnnotatedMethodSupplier(m, m.getGenericReturnType(), config, decoder);
-            } else if (m.isDefault()) {
-                defaultValueSupplier = createDefaultMethodSupplier(m, type, proxyObject);
-            } else {
-                // No default specified in proxied interface. Return "empty" for collection types, null for any other type.
-                defaultValueSupplier = knownCollections.getOrDefault(returnType, (ignored) -> null);
-            }
+            // The proper parametrized type for this would be Function<Object[], returnType>, but we can't say that in Java.
+            final Function<Object[], ?> defaultValueSupplier = defaultValueSupplierForMethod(proxyObjectType, m, returnType, proxyObject, propName);
 
             // This object encapsulates the way to get the value for the current property.
             final PropertyValueGetter propertyValueGetter;
@@ -352,6 +351,42 @@ public class ConfigProxyFactory {
         } catch (RuntimeException e) {
             throw new RuntimeException("Failed to create a proxy for method " + m.getName() + ": " + e, e);
         }
+    }
+
+    /**
+     * Build a supplier for the default value to be returned when the underlying property for a method is not set.
+     * Because of the way {@link Property} works, this will ALSO be called if the underlying property is set to null
+     * OR if it's set to a "bad" value that can't be decoded to the method's return type.
+     **/
+    private <PT> Function<Object[], ?> defaultValueSupplierForMethod(Class<PT> proxyObjectType, Method m, Type returnType, PT proxyObject, String propName) {
+        if (m.getAnnotation(DefaultValue.class) != null) {
+            // The method has a @DefaultValue annotation. Decode the string from there and return that.
+            return createAnnotatedMethodSupplier(m, m.getGenericReturnType(), config, decoder);
+        }
+
+        if (m.isDefault()) {
+            // The method has a default implementation in the interface. Obtain the default value by calling that implementation.
+            return createDefaultMethodSupplier(m, proxyObjectType, proxyObject);
+        }
+
+        // No default value available.
+        // For collections, return an empty
+        if (knownCollections.containsKey(returnType)) {
+            return knownCollections.get(returnType);
+        }
+
+        // For primitive return types, our historical behavior of returning a null causes an NPE with no message and an
+        // obscure trace. Instead of that we now use a fake supplier that will still throw the NPE, but adds a message to it.
+        if (returnType instanceof Class && ((Class<?>) returnType).isPrimitive()) {
+            return (ignored) -> {
+                String msg = String.format("Property '%s' is not set or has an invalid value and method %s.%s does not define a default value",
+                        propName, proxyObjectType.getName(), m.getName());
+                throw new NullPointerException(msg);
+            };
+        }
+
+        // For any other return type return nulls.
+        return (ignored) -> null;
     }
 
     /**
@@ -394,7 +429,7 @@ public class ConfigProxyFactory {
     }
 
     /** A supplier that calls a default method in the proxied interface and returns its output */
-    private static <T> Function<Object[], T> createDefaultMethodSupplier(Method method, Class<T> type, T proxyObject) {
+    private static <T> Function<Object[], T> createDefaultMethodSupplier(Method method, Class<T> proxyObjectType, T proxyObject) {
         final MethodHandle methodHandle;
 
         try {
@@ -402,21 +437,21 @@ public class ConfigProxyFactory {
                 Constructor<MethodHandles.Lookup> constructor = MethodHandles.Lookup.class
                         .getDeclaredConstructor(Class.class, int.class);
                 constructor.setAccessible(true);
-                methodHandle = constructor.newInstance(type, MethodHandles.Lookup.PRIVATE)
-                        .unreflectSpecial(method, type)
+                methodHandle = constructor.newInstance(proxyObjectType, MethodHandles.Lookup.PRIVATE)
+                        .unreflectSpecial(method, proxyObjectType)
                         .bindTo(proxyObject);
             }
             else {
                 // Java 9 onwards
                 methodHandle = MethodHandles.lookup()
-                        .findSpecial(type,
+                        .findSpecial(proxyObjectType,
                                 method.getName(),
                                 MethodType.methodType(method.getReturnType(), method.getParameterTypes()),
-                                type)
+                                proxyObjectType)
                         .bindTo(proxyObject);
             }
         } catch (ReflectiveOperationException e) {
-            throw new RuntimeException("Failed to create temporary object for " + type.getName(), e);
+            throw new RuntimeException("Failed to create temporary object for " + proxyObjectType.getName(), e);
         }
 
         return (args) -> {
