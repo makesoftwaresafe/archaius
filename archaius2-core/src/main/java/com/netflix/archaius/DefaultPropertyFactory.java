@@ -186,31 +186,33 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
             // The tricky edge case is if another update came in between the check above to get the version and
             // the call to the supplier. In that case we'll tag the updated value with an old version number. That's fine,
             // since the next call to get() will see the old version and try again.
+            CachedValue<T> newValue;
             try {
                 // Get the new value from the supplier. This call could fail.
-                CachedValue<T> newValue = new CachedValue<>(supplier.get(), currentMasterVersion);
-
-                /*
-                 * We successfully got the new value, so now we update the cache. We use an atomic CAS operation to guard
-                 * from edge cases where another thread could have updated to a higher version than we have, in a flow like this:
-                 * Assume currentVersion started at 1., property cache is set to 1 too.
-                 * 1. Upstream update bumps version to 2.
-                 * 2. Thread A reads currentVersion at 2, cachedValue at 1, proceeds to start update, gets interrupted and yields the cpu.
-                 * 3. Thread C bumps version to 3, yields the cpu.
-                 * 4. Thread B is scheduled, reads currentVersion at 3, cachedValue still at 1, proceeds to start update.
-                 * 5. Thread B keeps running, updates cache to 3, yields.
-                 * 6. Thread A resumes, tries to write cache with version 2.
-                 */
-                CACHED_VALUE_UPDATER.compareAndSet(this, currentCachedValue, newValue);
-
-                return newValue.value;
+                newValue = new CachedValue<>(supplier.get(), currentMasterVersion);
 
             } catch (RuntimeException e) {
-                // Oh, no, something went wrong while trying to get the new value. Log the error and rethrow the exception
-                // so our caller knows there's a problem. We leave the cache unchanged. Next caller will try again.
-                LOG.error("Unable to get current version of property '{}'", keyAndType.key, e);
-                throw e;
+                // Oh, no, something went wrong while trying to get the new value. Log the error and return null.
+                // Upstream users may return that null unchanged or substitute it by a defaultValue.
+                // We leave the cache unchanged, which means the next caller will try again.
+                LOG.error("Unable to update value for property '{}'", keyAndType.key, e);
+                return null;
             }
+
+            /*
+             * We successfully got the new value, so now we update the cache. We use an atomic CAS operation to guard
+             * from edge cases where another thread could have updated to a higher version than we have, in a flow like this:
+             * Assume currentVersion started at 1., property cache is set to 1 too.
+             * 1. Upstream update bumps version to 2.
+             * 2. Thread A reads currentVersion at 2, cachedValue at 1, proceeds to start update, gets interrupted and yields the cpu.
+             * 3. Thread C bumps version to 3, yields the cpu.
+             * 4. Thread B is scheduled, reads currentVersion at 3, cachedValue still at 1, proceeds to start update.
+             * 5. Thread B keeps running, updates cache to 3, yields.
+             * 6. Thread A resumes, tries to write cache with version 2.
+             */
+            CACHED_VALUE_UPDATER.compareAndSet(this, currentCachedValue, newValue);
+
+            return newValue.value;
         }
 
         @Override
@@ -280,7 +282,7 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
         @Override
         public Property<T> orElse(T defaultValue) {
             return new PropertyImpl<>(keyAndType, () -> {
-                T value = supplier.get();
+                T value = this.get(); // Value from the "parent" property
                 return value != null ? value : defaultValue;
             });
         }
@@ -288,12 +290,12 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
         @Override
         public Property<T> orElseGet(String key) {
             if (!keyAndType.hasType()) {
-                throw new IllegalStateException("Type information lost due to map() operation.  All calls to orElse[Get] must be made prior to calling map");
+                throw new IllegalStateException("Type information lost due to map() operation.  All calls to orElseGet() must be made prior to calling map");
             }
             KeyAndType<T> keyAndType = this.keyAndType.withKey(key);
             Property<T> next = DefaultPropertyFactory.this.get(key, keyAndType.type);
             return new PropertyImpl<>(keyAndType, () -> {
-                T value = supplier.get();
+                T value = this.get(); // Value from the "parent" property
                 return value != null ? value : next.get();
             });
         }
@@ -301,7 +303,7 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
         @Override
         public <S> Property<S> map(Function<T, S> mapper) {
             return new PropertyImpl<>(keyAndType.discardType(), () -> {
-                T value = supplier.get();
+                T value = this.get(); // Value from the "parent" property
                 if (value != null) {
                     return mapper.apply(value);
                 } else {
@@ -464,12 +466,14 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
         public <T> Property<T> asType(Function<String, T> mapper, String defaultValue) {
             T typedDefaultValue = applyOrThrow(mapper, defaultValue);
             return getFromSupplier(propName, null, () -> {
-                String value = config.getString(propName, null);
-                if (value != null) {
-                        return applyOrThrow(mapper, value);
-                }
+                String stringValue = config.getString(propName, null);
 
-                return typedDefaultValue;
+                try {
+                    return stringValue != null ? applyOrThrow(mapper, stringValue) : typedDefaultValue;
+                } catch (ParseException pe) {
+                    LOG.error("Error parsing value '{}' for property '{}'", stringValue, propName, pe);
+                    return typedDefaultValue;
+                }
             });
         }
 

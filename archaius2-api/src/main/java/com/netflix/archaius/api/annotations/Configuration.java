@@ -22,8 +22,17 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
 /**
- * Marks a field as a configuration item. Governator will auto-assign the value based
- * on the {@link #value()} of the annotation via the set {@link ConfigurationProvider}.
+ * When applied to an interface, marks it as a candidate for binding via a ConfigProxyFactory (from the archaius2-core
+ * module). For this case, the only relevant attributes are {@link #prefix()}, which sets a shared prefix for all the
+ * properties bound to the interface's methods, and {@link #immutable()}, which when set to true creates a static proxy
+ * that always returns the config values as they were at the moment that the proxy object is created.
+ * <p>
+ * Note that an interface can be bound via the ConfigProxyFactory even if it does NOT have this annotation.
+ * <p>
+ * When applied to a field, marks it as a configuration item, to be injected with the value of the specified property
+ * key. This usage is deprecated in favor of using your DI-framework options for injecting configuration values.
+ * @see PropertyName
+ * @see DefaultValue
  */
 @Documented
 @Retention(java.lang.annotation.RetentionPolicy.RUNTIME)
@@ -31,37 +40,37 @@ import java.lang.annotation.Target;
 public @interface Configuration
 {
     /**
-     * @return name/key of the config to assign
+     * name/key of the config to assign
      */
     String      prefix() default "";
 
     /**
-     * @return field names to use for replacement
+     * field names to use for replacement
      */
     String[]    params() default {};
     
     /**
-     * @return user displayable description of this configuration
+     * user displayable description of this configuration
      */
     String      documentation() default "";
     
     /**
-     * @return true to allow mapping configuration to fields
+     * true to allow mapping configuration to fields
      */
     boolean     allowFields() default false;
     
     /**
-     * @return true to allow mapping configuration to setters
+     * true to allow mapping configuration to setters
      */
     boolean     allowSetters() default true;
     
     /**
-     * @return Method to call after configuration is bound
+     * Method to call after configuration is bound
      */
     String      postConfigure() default "";
     
     /**
-     * @return If true then properties cannot change once set otherwise methods will be 
+     * If true then properties cannot change once set otherwise methods will be
      * bound to dynamic properties via PropertyFactory.
      */
     boolean     immutable() default false;

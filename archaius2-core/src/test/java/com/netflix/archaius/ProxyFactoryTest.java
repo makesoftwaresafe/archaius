@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,7 +33,6 @@ import com.netflix.archaius.api.annotations.DefaultValue;
 import com.netflix.archaius.api.annotations.PropertyName;
 import com.netflix.archaius.api.config.SettableConfig;
 import com.netflix.archaius.config.DefaultSettableConfig;
-import com.netflix.archaius.exceptions.ParseException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -86,24 +84,29 @@ public class ProxyFactoryTest {
     @Test
     public void testBadValuesInConfig() {
         config.setProperty("integer", "a");
+        config.setProperty("required", "1");
 
-        RootConfig a = proxyFactory.newProxy(RootConfig.class);
+        WithRequiredValue a = proxyFactory.newProxy(WithRequiredValue.class);
 
-        // We should be able to *build* the config object, but then get an error when trying to get the value
-        ParseException pe = assertThrows(ParseException.class, a::getInteger);
-        assertThat(pe.getMessage(), allOf(
-                containsString("'integer'"),
-                containsString("'a'")));
+        // A bad config value causes the default to be used
+        assertEquals(0, a.getInteger());
 
-        // Other values do work
+        // A missing setting returns the default
         assertEquals(TestEnum.NONE, a.getEnum());
 
-        // But a subsequent, invalid, change to the configs now results in an error
+        // An updated setting returns the new value
+        config.setProperty("enum", "A");
+        assertEquals(TestEnum.A, a.getEnum());
+
+        // A second update, to an invalid value, reverts to returning the default.
         config.setProperty("enum", "NOTINENUM");
-        ParseException pe2 = assertThrows(ParseException.class, a::getEnum);
-        assertThat(pe2.getMessage(), allOf(
-                containsString("'enum'"),
-                containsString("'NOTINENUM'")));
+        assertEquals(TestEnum.NONE, a.getEnum());
+
+        assertEquals(1, a.getRequired());
+        config.setProperty("required", "a");
+        NullPointerException npe = assertThrows(NullPointerException.class, a::getRequired);
+        // We should get a message that includes the property name
+        assertThat(npe.getMessage(), containsString("required"));
     }
     
     @Test
@@ -131,7 +134,7 @@ public class ProxyFactoryTest {
         config.setProperty("prefix.baseBoolean", true);
         config.setProperty("prefix.intArray", "0,1,2,3");
 
-        RootConfig a = proxyFactory.newProxy(RootConfig.class, "prefix");
+        WithRequiredValue a = proxyFactory.newProxy(WithRequiredValue.class, "prefix");
         
         assertThat(a.getStr(),                          equalTo("str1"));
         assertThat(a.getInteger(),                      equalTo(1));
@@ -145,12 +148,9 @@ public class ProxyFactoryTest {
         config.setProperty("prefix.subConfig.str", "str3");
         assertThat(a.getSubConfig().str(),      equalTo("str3"));
 
-        try {
-            a.getRequiredValue();
-            fail("should have failed with no value for requiredValue");
-        }
-        catch (Exception expected) {
-        }
+        NullPointerException npe = assertThrows(NullPointerException.class, a::getRequired);
+        // We should get a message that includes the property name
+        assertThat(npe.getMessage(), containsString("prefix.required"));
     }
 
     @Test
@@ -494,11 +494,15 @@ public class ProxyFactoryTest {
         @DefaultValue("")
         Integer[] getIntArray();
 
-        int getRequiredValue();
-
         default long getOtherLongValueWithDefault() {
             return 43L;
         }
+    }
+
+    @SuppressWarnings("UnusedReturnValue")
+    public interface WithRequiredValue extends RootConfig {
+        // A primitive-valued property will throw an exception if it's not set.
+        int getRequired();
     }
 
     public interface SubConfig {

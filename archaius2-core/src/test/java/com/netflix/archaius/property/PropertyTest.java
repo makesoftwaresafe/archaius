@@ -33,7 +33,6 @@ import java.util.function.Function;
 import java.util.function.IntConsumer;
 
 import com.netflix.archaius.api.PropertyContainer;
-import com.netflix.archaius.exceptions.ParseException;
 import org.junit.jupiter.api.BeforeEach;
 import org.mockito.Mockito;
 
@@ -47,9 +46,6 @@ import com.netflix.archaius.config.DefaultSettableConfig;
 
 import org.junit.jupiter.api.Test;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.allOf;
-import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -441,29 +437,43 @@ public class PropertyTest {
 
     @Test
     public void testBadValue() {
+        Property<Integer> prop = factory.get("first", Integer.class);
+
+        // No value, property returns null
+        assertNull(prop.get());
+
+        // Set to 1
+        config.setProperty("first", "1");
+        assertEquals(1, prop.get().intValue());
+
+        // Set to bad value, property reverts to returning null
         config.setProperty("first", "bad");
+        assertNull(prop.get());
 
-        Property<Integer> prop = factory
-                .get("first", Integer.class);
-
-        ParseException pe = assertThrows(ParseException.class, prop::get);
-        assertThat(pe.getMessage(), allOf(
-                containsString("'first'"),
-                containsString("'bad'")));
+        // Set to good value again
+        config.setProperty("first", "2");
+        assertEquals(2, prop.get().intValue());
     }
+
 
     @Test
     public void chainedPropertyBadValue() {
+        Property<Integer> prop = factory.get("first", Integer.class).orElse(3);
+
+        // No value, property returns default
+        assertEquals(3, prop.get());
+
+        // Set to 1
+        config.setProperty("first", "1");
+        assertEquals(1, prop.get().intValue());
+
+        // Set to bad value, property reverts to returning default
         config.setProperty("first", "bad");
+        assertEquals(3, prop.get());
 
-        Property<Integer> prop = factory
-                .get("first", Integer.class)
-                .orElse(3);
-
-        ParseException pe = assertThrows(ParseException.class, prop::get);
-        assertThat(pe.getMessage(), allOf(
-                containsString("'first'"),
-                containsString("'bad'")));
+        // Set to good value again
+        config.setProperty("first", "2");
+        assertEquals(2, prop.get().intValue());
     }
 
     @Test
@@ -474,12 +484,10 @@ public class PropertyTest {
                 .orElse(3);
         Property<String> stringProperty = factory.get("first", String.class);
 
-        Consumer<Integer> integerConsumer = unexpected -> fail("Consumer should not be called. Received argument: " + unexpected);
+        AtomicInteger integerConsumer = new AtomicInteger();
         AtomicReference<String> stringConsumer = new AtomicReference<>();
 
-        // Order is important here! We want the string subscription to be called *after* trying to call the integer
-        // subscription, which should fail because "a" can not be decoded as an integer
-        integerProperty.subscribe(integerConsumer);
+        integerProperty.subscribe(integerConsumer::set);
         stringProperty.subscribe(stringConsumer::set);
 
         // Initial value for the property is 2
@@ -489,7 +497,8 @@ public class PropertyTest {
         // Set it to something that's not an integer
         config.setProperty("first", "a");
 
-        // The integer consumer is never called
+        // The integer consumer is called with the default value
+        assertEquals(3, integerConsumer.get());
         // The string consumer *is* called with the new value
         assertEquals("a", stringConsumer.get());
     }
@@ -520,7 +529,8 @@ public class PropertyTest {
         // Set it to something that's not an integer
         config.setProperty("first", null);
 
-        // The integer consumer is never called
+        // The primitive int consumer is never called. The subscription machinery will get an NPE internally when
+        // it tries to cast the null to a primitive int. Nevertheless, the rest of the consumers should still be called.
         // The string consumer *is* called with the new value
         assertNull(stringConsumer.get());
         // ... the boxed integer consumer also gets the new value
@@ -545,7 +555,9 @@ public class PropertyTest {
         AtomicReference<String> stringConsumer = new AtomicReference<>();
 
         // Order is important here! We want the string subscription to be called *after* trying to call the integer
-        // subscription, which should fail because "a" can not be decoded as an integer
+        // subscription, which should fail because "a" can not be decoded as an integer.
+        // This test relies on the fact that the property factory calls listeners in the order they were added.
+        // THAT IS NOT PART OF THE PUBLIC CONTRACT!
         integerProperty.subscribe(faultyConsumer);
         stringProperty.subscribe(stringConsumer::set);
 
@@ -720,14 +732,11 @@ public class PropertyTest {
         config.setProperty("foo", 3);
         assertEquals(3, prop.get().intValue());
 
-        // Set to an invalid value
+        // Setting to an invalid value should cause the default value to be used
         config.setProperty("foo", "notAnInt");
-        ParseException pe = assertThrows(ParseException.class, prop::get);
-        assertThat(pe.getMessage(), allOf(containsString("foo"), containsString("notAnInt")));
+        assertEquals(1, prop.get());
 
-        // Using the custom parser feature should still return a ParseException. Older versions of the
-        // code would silently return the default value instead.
-        ParseException pe2 = assertThrows(ParseException.class, () -> container.asType(Integer::parseInt, "1").get());
-        assertThat(pe2.getMessage(), allOf(containsString("foo"), containsString("notAnInt")));
+        // Using the custom parser feature should return the default value when the value is invalid
+        assertEquals(1, container.asType(Integer::parseInt, "1").get());
     }
 }
