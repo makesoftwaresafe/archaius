@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 import java.lang.reflect.Type;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -298,6 +299,29 @@ public abstract class AbstractConfig implements Config {
     @SuppressWarnings("unchecked")
     protected <T> T getValueWithDefault(Type type, String key, T defaultValue) {
         Object rawProp = getRawProperty(key);
+        if (rawProp == null && type instanceof ArchaiusType) {
+            ArchaiusType archaiusType = (ArchaiusType) type;
+            if (archaiusType.isMap()) {
+                List<String> vals = new ArrayList<>();
+                String keyAndDelimiter = key + ".";
+                for (String k : keys()) {
+                    if (k.startsWith(keyAndDelimiter)) {
+                        String val = getString(k);
+                        if (val.contains("=") || val.contains(",")) {
+                            log.warn(
+                                    "For map resolution of key {}, skipping subkey {} because value {}"
+                                            + " contains an invalid character (=/,)",
+                                    key, k, val);
+                        } else {
+                            vals.add(String.format("%s=%s", k.substring(keyAndDelimiter.length()), getString(k)));
+                        }
+                    }
+                }
+                rawProp = vals.isEmpty() ? null : String.join(",", vals);
+            } else if (archaiusType.isCollection()) {
+                rawProp = createListStringForKey(key);
+            }
+        }
 
         // Not found. Return the default.
         if (rawProp == null) {
@@ -363,6 +387,28 @@ public abstract class AbstractConfig implements Config {
         // Nothing matches (ie, caller wants a ParametrizedType, or the rawProp is not easily cast to the desired type)
         return parseError(key, rawProp.toString(),
                 new IllegalArgumentException("Property " + rawProp + " is not convertible to " + type.getTypeName()));
+    }
+
+    private String createListStringForKey(String key) {
+        List<String> vals = new ArrayList<>();
+        int counter = 0;
+        while (true) {
+            String checkKey = String.format("%s[%s]", key, counter++);
+            if (containsKey(checkKey)) {
+                String val = getString(checkKey);
+                if (val.contains(",")) {
+                    log.warn(
+                            "For collection resolution of key {}, skipping subkey {} because value {}"
+                                    + " contains an invalid character (,)",
+                            key, checkKey, val);
+                } else {
+                    vals.add(getString(checkKey));
+                }
+            } else {
+                break;
+            }
+        }
+        return vals.isEmpty() ? null : String.join(",", vals);
     }
 
     @Override
@@ -469,6 +515,9 @@ public abstract class AbstractConfig implements Config {
     public <T> List<T> getList(String key, Class<T> type) {
         Object value = getRawProperty(key);
         if (value == null) {
+            value = createListStringForKey(key);
+        }
+        if (value == null) {
             return notFound(key);
         }
 
@@ -490,6 +539,9 @@ public abstract class AbstractConfig implements Config {
     @SuppressWarnings("rawtypes") // Required by legacy API
     public List getList(String key, List defaultValue) {
         Object value = getRawProperty(key);
+        if (value == null) {
+            value = createListStringForKey(key);
+        }
         if (value == null) {
             return notFound(key, defaultValue);
         }
