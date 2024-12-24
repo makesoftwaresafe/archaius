@@ -28,13 +28,20 @@ import com.netflix.archaius.interpolate.ConfigStrLookup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
@@ -296,30 +303,47 @@ public abstract class AbstractConfig implements Config {
         }
     }
 
+    private boolean isMap(ParameterizedType type) {
+        if (type.getRawType() instanceof Class) {
+            return Map.class.isAssignableFrom((Class<?>) type.getRawType());
+        }
+        return false;
+    }
+
+    private boolean isCollection(ParameterizedType type) {
+        if (type.getRawType() instanceof Class) {
+            return Collection.class.isAssignableFrom((Class<?>) type.getRawType());
+        }
+        return false;
+
+    }
+
     @SuppressWarnings("unchecked")
     protected <T> T getValueWithDefault(Type type, String key, T defaultValue) {
         Object rawProp = getRawProperty(key);
-        if (rawProp == null && type instanceof ArchaiusType) {
-            ArchaiusType archaiusType = (ArchaiusType) type;
-            if (archaiusType.isMap()) {
-                List<String> vals = new ArrayList<>();
+        if (rawProp == null && type instanceof ParameterizedType) {
+            ParameterizedType parameterizedType = (ParameterizedType) type;
+            if (isMap(parameterizedType)) {
+                Map<?, ?> ret = new LinkedHashMap<>();
                 String keyAndDelimiter = key + ".";
+                Type keyType = parameterizedType.getActualTypeArguments()[0];
+                Type valueType = parameterizedType.getActualTypeArguments()[1];
+
                 for (String k : keys()) {
                     if (k.startsWith(keyAndDelimiter)) {
-                        String val = getString(k);
-                        if (val.contains("=") || val.contains(",")) {
-                            log.warn(
-                                    "For map resolution of key {}, skipping subkey {} because value {}"
-                                            + " contains an invalid character (=/,)",
-                                    key, k, val);
-                        } else {
-                            vals.add(String.format("%s=%s", k.substring(keyAndDelimiter.length()), getString(k)));
-                        }
+                        ret.put(getDecoder().decode(keyType, k.substring(keyAndDelimiter.length())), get(valueType, k));
                     }
                 }
-                rawProp = vals.isEmpty() ? null : String.join(",", vals);
-            } else if (archaiusType.isCollection()) {
-                rawProp = createListStringForKey(key);
+                return ret.isEmpty() ? defaultValue : (T) Collections.unmodifiableMap(ret);
+            } else if (isCollection(parameterizedType)) {
+                Type valueType = parameterizedType.getActualTypeArguments()[0];
+                List<?> ret = createListForKey(key, valueType);
+                if (Set.class.isAssignableFrom((Class<?>) parameterizedType.getRawType())) {
+                    Set<?> retSet = new LinkedHashSet<>(ret);
+                    return ret.isEmpty() ? defaultValue : (T) Collections.unmodifiableSet(retSet);
+                } else {
+                    return ret.isEmpty() ? defaultValue : (T) Collections.unmodifiableList(ret);
+                }
             }
         }
 
@@ -389,26 +413,18 @@ public abstract class AbstractConfig implements Config {
                 new IllegalArgumentException("Property " + rawProp + " is not convertible to " + type.getTypeName()));
     }
 
-    private String createListStringForKey(String key) {
-        List<String> vals = new ArrayList<>();
+    private List<?> createListForKey(String key, Type type) {
+        List<?> vals = new ArrayList<>();
         int counter = 0;
         while (true) {
             String checkKey = String.format("%s[%s]", key, counter++);
             if (containsKey(checkKey)) {
-                String val = getString(checkKey);
-                if (val.contains(",")) {
-                    log.warn(
-                            "For collection resolution of key {}, skipping subkey {} because value {}"
-                                    + " contains an invalid character (,)",
-                            key, checkKey, val);
-                } else {
-                    vals.add(getString(checkKey));
-                }
+                vals.add(get(type, checkKey));
             } else {
                 break;
             }
         }
-        return vals.isEmpty() ? null : String.join(",", vals);
+        return vals;
     }
 
     @Override
@@ -515,7 +531,10 @@ public abstract class AbstractConfig implements Config {
     public <T> List<T> getList(String key, Class<T> type) {
         Object value = getRawProperty(key);
         if (value == null) {
-            value = createListStringForKey(key);
+            List<?> alternativeListCreation = createListForKey(key, type);
+            if (!alternativeListCreation.isEmpty()) {
+                return (List<T>) alternativeListCreation;
+            }
         }
         if (value == null) {
             return notFound(key);
@@ -540,7 +559,10 @@ public abstract class AbstractConfig implements Config {
     public List getList(String key, List defaultValue) {
         Object value = getRawProperty(key);
         if (value == null) {
-            value = createListStringForKey(key);
+            List<?> alternativeListCreation = createListForKey(key, String.class);
+            if (!alternativeListCreation.isEmpty()) {
+                return alternativeListCreation;
+            }
         }
         if (value == null) {
             return notFound(key, defaultValue);

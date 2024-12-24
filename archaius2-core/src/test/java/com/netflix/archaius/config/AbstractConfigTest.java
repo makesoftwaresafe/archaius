@@ -61,6 +61,8 @@ public class AbstractConfigTest {
             entries.put("springYmlList[0]", "1");
             entries.put("springYmlList[1]", "2");
             entries.put("springYmlList[2]", "3");
+            // Repeated entry to distinguish set and list
+            entries.put("springYmlList[3]", "3");
             entries.put("springYmlMap.key1", "1");
             entries.put("springYmlMap.key2", "2");
             entries.put("springYmlMap.key3", "3");
@@ -242,7 +244,7 @@ public class AbstractConfigTest {
 
         List<Integer> list =
                 config.get(ArchaiusType.forListOf(Integer.class), "springYmlList", Arrays.asList(1));
-        assertEquals(Arrays.asList(1, 2, 3), list);
+        assertEquals(Arrays.asList(1, 2, 3, 3), list);
 
         Map<String, Integer> map =
                 config.get(ArchaiusType.forMapOf(String.class, Integer.class),
@@ -257,6 +259,11 @@ public class AbstractConfigTest {
                 config.get(ArchaiusType.forListOf(Integer.class), "springYmlMap", Arrays.asList(1));
         assertEquals(invalidList, Arrays.asList(1));
 
+        // Not a proper set, so we have the default value returned
+        Set<Integer> invalidSet =
+                config.get(ArchaiusType.forSetOf(Integer.class), "springYmlMap", Collections.singleton(1));
+        assertEquals(invalidSet, Collections.singleton(1));
+
         // Not a proper map, so we have the default value returned
         Map<String, String> invalidMap =
                 config.get(
@@ -265,18 +272,5 @@ public class AbstractConfigTest {
                         Collections.singletonMap("default", "default"));
         assertEquals(1, invalidMap.size());
         assertEquals("default", invalidMap.get("default"));
-
-        // Some illegal values, so we return with those filtered
-        List<String> listWithSomeInvalid =
-                config.get(ArchaiusType.forListOf(String.class), "springYmlWithSomeInvalidList", Arrays.asList("bad"));
-        assertEquals(listWithSomeInvalid, Arrays.asList("abc", "a=b"));
-
-        Map<String, String> mapWithSomeInvalid =
-                config.get(
-                        ArchaiusType.forMapOf(String.class, String.class),
-                        "springYmlWithSomeInvalidMap",
-                        Collections.emptyMap());
-        assertEquals(1, mapWithSomeInvalid.size());
-        assertEquals("c", mapWithSomeInvalid.get("key2"));
     }
 }

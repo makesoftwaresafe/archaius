@@ -3,7 +3,6 @@ package com.netflix.archaius.api;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -81,15 +80,6 @@ public final class ArchaiusType implements ParameterizedType {
     public Type getRawType() {
         return rawType;
     }
-
-    public boolean isMap() {
-        return Map.class.isAssignableFrom(rawType);
-    }
-
-    public boolean isCollection() {
-        return Collection.class.isAssignableFrom(rawType);
-    }
-
     @Override
     public Type getOwnerType() {
         return null;
