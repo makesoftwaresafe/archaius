@@ -80,6 +80,7 @@ public final class ArchaiusType implements ParameterizedType {
     public Type getRawType() {
         return rawType;
     }
+
     @Override
     public Type getOwnerType() {
         return null;
