@@ -21,9 +21,12 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BiConsumer;
 
+import com.netflix.archaius.api.ArchaiusType;
 import com.netflix.archaius.api.Config;
 import com.netflix.archaius.api.ConfigListener;
 import com.netflix.archaius.exceptions.ParseException;
@@ -35,6 +38,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
@@ -54,6 +58,23 @@ public class AbstractConfigTest {
             entries.put("stringList", "a,b,c");
             entries.put("uriList", "http://example.com,http://example.org");
             entries.put("underlyingList", Arrays.asList("a", "b", "c"));
+            entries.put("springYmlList[0]", "1");
+            entries.put("springYmlList[1]", "2");
+            entries.put("springYmlList[2]", "3");
+            entries.put("springYmlIntList[0]", 1);
+            entries.put("springYmlIntList[1]", 2);
+            entries.put("springYmlIntList[2]", 3);
+            // Repeated entry to distinguish set and list
+            entries.put("springYmlList[3]", "3");
+            entries.put("springYmlMap.key1", "1");
+            entries.put("springYmlMap.key2", "2");
+            entries.put("springYmlMap.key3", "3");
+            entries.put("springYmlWithSomeInvalidList[0]", "abc,def");
+            entries.put("springYmlWithSomeInvalidList[1]", "abc");
+            entries.put("springYmlWithSomeInvalidList[2]", "a=b");
+            entries.put("springYmlWithSomeInvalidMap.key1", "a=b");
+            entries.put("springYmlWithSomeInvalidMap.key2", "c");
+            entries.put("springYmlWithSomeInvalidMap.key3", "d,e");
         }
 
         @Override
@@ -212,5 +233,60 @@ public class AbstractConfigTest {
             verify(listener).onConfigRemoved(mockChildConfig);
             verify(listener).onError(mockError, mockChildConfig);
         }
+    }
+
+    @Test
+    public void testSpringYml() {
+        // Working cases for set, list, and map
+        Set<Integer> set =
+                config.get(ArchaiusType.forSetOf(Integer.class), "springYmlList", Collections.singleton(1));
+        assertEquals(set.size(), 3);
+        assertTrue(set.contains(1));
+        assertTrue(set.contains(2));
+        assertTrue(set.contains(3));
+
+        List<Integer> list =
+                config.get(ArchaiusType.forListOf(Integer.class), "springYmlList", Arrays.asList(1));
+        assertEquals(Arrays.asList(1, 2, 3, 3), list);
+
+        List<Integer> intList =
+                config.get(ArchaiusType.forListOf(Integer.class), "springYmlIntList", Arrays.asList(1));
+        assertEquals(Arrays.asList(1, 2, 3), intList);
+
+        Map<String, Integer> map =
+                config.get(ArchaiusType.forMapOf(String.class, Integer.class),
+                        "springYmlMap", Collections.emptyMap());
+        assertEquals(map.size(), 3);
+        assertEquals(1, map.get("key1"));
+        assertEquals(2, map.get("key2"));
+        assertEquals(3, map.get("key3"));
+
+        // Not a proper list, so we have the default value returned
+        List<Integer> invalidList =
+                config.get(ArchaiusType.forListOf(Integer.class), "springYmlMap", Arrays.asList(1));
+        assertEquals(invalidList, Arrays.asList(1));
+
+        // Not a proper set, so we have the default value returned
+        Set<Integer> invalidSet =
+                config.get(ArchaiusType.forSetOf(Integer.class), "springYmlMap", Collections.singleton(1));
+        assertEquals(invalidSet, Collections.singleton(1));
+
+        // Not a proper map, so we have the default value returned
+        Map<String, String> invalidMap =
+                config.get(
+                        ArchaiusType.forMapOf(String.class, String.class),
+                        "springYmlList",
+                        Collections.singletonMap("default", "default"));
+        assertEquals(1, invalidMap.size());
+        assertEquals("default", invalidMap.get("default"));
+    }
+
+    @Test
+    public void testSpringYamlAsNormalValue() {
+        // Confirm that values that are intended to be read as a Spring YML Map can still be read normally
+        // and also do not return values when read at the top level as anything other than a map.
+        assertEquals("1", config.get(String.class, "springYmlMap.key1"));
+        assertEquals(2, config.get(Integer.class, "springYmlMap.key2"));
+        assertEquals(false, config.containsKey("springYmlMap"));
     }
 }

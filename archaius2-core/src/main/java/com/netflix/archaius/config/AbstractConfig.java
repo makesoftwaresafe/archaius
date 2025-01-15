@@ -28,12 +28,20 @@ import com.netflix.archaius.interpolate.ConfigStrLookup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
@@ -295,9 +303,49 @@ public abstract class AbstractConfig implements Config {
         }
     }
 
+    private boolean isMap(ParameterizedType type) {
+        if (type.getRawType() instanceof Class) {
+            return Map.class.isAssignableFrom((Class<?>) type.getRawType());
+        }
+        return false;
+    }
+
+    private boolean isCollection(ParameterizedType type) {
+        if (type.getRawType() instanceof Class) {
+            return Collection.class.isAssignableFrom((Class<?>) type.getRawType());
+        }
+        return false;
+
+    }
+
     @SuppressWarnings("unchecked")
     protected <T> T getValueWithDefault(Type type, String key, T defaultValue) {
         Object rawProp = getRawProperty(key);
+        if (rawProp == null && type instanceof ParameterizedType) {
+            ParameterizedType parameterizedType = (ParameterizedType) type;
+            if (isMap(parameterizedType)) {
+                Map<?, ?> ret = new LinkedHashMap<>();
+                String keyAndDelimiter = key + ".";
+                Type keyType = parameterizedType.getActualTypeArguments()[0];
+                Type valueType = parameterizedType.getActualTypeArguments()[1];
+
+                for (String k : keys()) {
+                    if (k.startsWith(keyAndDelimiter)) {
+                        ret.put(getDecoder().decode(keyType, k.substring(keyAndDelimiter.length())), get(valueType, k));
+                    }
+                }
+                return ret.isEmpty() ? defaultValue : (T) Collections.unmodifiableMap(ret);
+            } else if (isCollection(parameterizedType)) {
+                Type valueType = parameterizedType.getActualTypeArguments()[0];
+                List<?> ret = createListForKey(key, valueType);
+                if (Set.class.isAssignableFrom((Class<?>) parameterizedType.getRawType())) {
+                    Set<?> retSet = new LinkedHashSet<>(ret);
+                    return ret.isEmpty() ? defaultValue : (T) Collections.unmodifiableSet(retSet);
+                } else {
+                    return ret.isEmpty() ? defaultValue : (T) Collections.unmodifiableList(ret);
+                }
+            }
+        }
 
         // Not found. Return the default.
         if (rawProp == null) {
@@ -363,6 +411,20 @@ public abstract class AbstractConfig implements Config {
         // Nothing matches (ie, caller wants a ParametrizedType, or the rawProp is not easily cast to the desired type)
         return parseError(key, rawProp.toString(),
                 new IllegalArgumentException("Property " + rawProp + " is not convertible to " + type.getTypeName()));
+    }
+
+    private List<?> createListForKey(String key, Type type) {
+        List<?> vals = new ArrayList<>();
+        int counter = 0;
+        while (true) {
+            String checkKey = String.format("%s[%s]", key, counter++);
+            if (containsKey(checkKey)) {
+                vals.add(get(type, checkKey));
+            } else {
+                break;
+            }
+        }
+        return vals;
     }
 
     @Override
@@ -469,6 +531,12 @@ public abstract class AbstractConfig implements Config {
     public <T> List<T> getList(String key, Class<T> type) {
         Object value = getRawProperty(key);
         if (value == null) {
+            List<?> alternativeListCreation = createListForKey(key, type);
+            if (!alternativeListCreation.isEmpty()) {
+                return (List<T>) alternativeListCreation;
+            }
+        }
+        if (value == null) {
             return notFound(key);
         }
 
@@ -490,6 +558,12 @@ public abstract class AbstractConfig implements Config {
     @SuppressWarnings("rawtypes") // Required by legacy API
     public List getList(String key, List defaultValue) {
         Object value = getRawProperty(key);
+        if (value == null) {
+            List<?> alternativeListCreation = createListForKey(key, String.class);
+            if (!alternativeListCreation.isEmpty()) {
+                return alternativeListCreation;
+            }
+        }
         if (value == null) {
             return notFound(key, defaultValue);
         }
