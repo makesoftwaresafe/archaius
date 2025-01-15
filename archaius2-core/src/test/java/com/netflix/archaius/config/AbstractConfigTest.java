@@ -61,6 +61,9 @@ public class AbstractConfigTest {
             entries.put("springYmlList[0]", "1");
             entries.put("springYmlList[1]", "2");
             entries.put("springYmlList[2]", "3");
+            entries.put("springYmlIntList[0]", 1);
+            entries.put("springYmlIntList[1]", 2);
+            entries.put("springYmlIntList[2]", 3);
             // Repeated entry to distinguish set and list
             entries.put("springYmlList[3]", "3");
             entries.put("springYmlMap.key1", "1");
@@ -246,6 +249,10 @@ public class AbstractConfigTest {
                 config.get(ArchaiusType.forListOf(Integer.class), "springYmlList", Arrays.asList(1));
         assertEquals(Arrays.asList(1, 2, 3, 3), list);
 
+        List<Integer> intList =
+                config.get(ArchaiusType.forListOf(Integer.class), "springYmlIntList", Arrays.asList(1));
+        assertEquals(Arrays.asList(1, 2, 3), intList);
+
         Map<String, Integer> map =
                 config.get(ArchaiusType.forMapOf(String.class, Integer.class),
                         "springYmlMap", Collections.emptyMap());
@@ -272,5 +279,14 @@ public class AbstractConfigTest {
                         Collections.singletonMap("default", "default"));
         assertEquals(1, invalidMap.size());
         assertEquals("default", invalidMap.get("default"));
+    }
+
+    @Test
+    public void testSpringYamlAsNormalValue() {
+        // Confirm that values that are intended to be read as a Spring YML Map can still be read normally
+        // and also do not return values when read at the top level as anything other than a map.
+        assertEquals("1", config.get(String.class, "springYmlMap.key1"));
+        assertEquals(2, config.get(Integer.class, "springYmlMap.key2"));
+        assertEquals(false, config.containsKey("springYmlMap"));
     }
 }

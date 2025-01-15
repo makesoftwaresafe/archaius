@@ -438,6 +438,37 @@ public class ProxyFactoryTest {
                     containsString("getAnIntWithParam")));
     }
 
+    @Test
+    public void testSpringYmlCollections() {
+        config.setProperty("list[0]", "1");
+        config.setProperty("list[1]", 2);
+        config.setProperty("list[2]", "3");
+
+        config.setProperty("set[0]", "1");
+        config.setProperty("set[1]", "2");
+        config.setProperty("set[2]", 3);
+        config.setProperty("set[3]", "3");
+
+        config.setProperty("map.key1", "1");
+        config.setProperty("map.key2", 2);
+        config.setProperty("map.key3", "3");
+
+        ConfigWithSpringCollections configWithSpringCollections = proxyFactory.newProxy(ConfigWithSpringCollections.class);
+        assertEquals(Arrays.asList("1", "2", "3"), configWithSpringCollections.getList());
+
+        Set<Integer> set = configWithSpringCollections.getSet();
+        assertEquals(3, set.size());
+        assertTrue(set.contains(1));
+        assertTrue(set.contains(2));
+        assertTrue(set.contains(3));
+
+        Map<String, Integer> map = configWithSpringCollections.getMap();
+        assertEquals(3, map.size());
+        assertEquals(1, map.get("key1"));
+        assertEquals(2, map.get("key2"));
+        assertEquals(3, map.get("key3"));
+    }
+
 
     //////////////////////////////////////////////////////////////////
     /// Test Interfaces
@@ -665,5 +696,11 @@ public class ProxyFactoryTest {
 
         // A parametrized method requires a @PropertyName annotation
         int getAnIntWithParam(String param);
+    }
+
+    public interface ConfigWithSpringCollections {
+        List<String> getList();
+        Set<Integer> getSet();
+        Map<String, Integer> getMap();
     }
 }
