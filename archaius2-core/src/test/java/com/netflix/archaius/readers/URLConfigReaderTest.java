@@ -23,6 +23,23 @@ public class URLConfigReaderTest {
     }
 
     @Test
+    public void testStringConstructorEmptyString() {
+        final String url1 = "http://hello:8080/hey";
+        final String url2 = "";
+        final String url3 = null;
+        URLConfigReader reader1 = new URLConfigReader(url1);
+        assertEquals(url1, reader1.getConfigUrls().get(0).toString());
+
+        URLConfigReader reader2 = new URLConfigReader(url1, url2);
+        assertEquals(url1, reader2.getConfigUrls().get(0).toString());
+        assertEquals(1, reader2.getConfigUrls().size());
+
+        URLConfigReader reader3 = new URLConfigReader(url1, url2, url3);
+        assertEquals(url1, reader3.getConfigUrls().get(0).toString());
+        assertEquals(1, reader3.getConfigUrls().size());
+    }
+
+    @Test
     public void testStringConstructorMalformedUrl() {
         assertThrows(RuntimeException.class, () -> new URLConfigReader("bad url"));
     }

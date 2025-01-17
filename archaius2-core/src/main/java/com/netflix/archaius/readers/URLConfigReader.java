@@ -56,10 +56,13 @@ public class URLConfigReader implements Callable<PollingResponse> {
         if (urlStrings == null || urlStrings.length == 0) {
             throw new IllegalArgumentException("urlStrings is null or empty");
         }
-        URL[] urls = new URL[urlStrings.length];
+        final String[] validUrlStrings = Arrays.stream(urlStrings)
+                .filter(s -> s != null && !s.isEmpty())
+                .toArray(String[]::new);
+        final URL[] urls = new URL[validUrlStrings.length];
         try {
             for (int i = 0; i < urls.length; i++) {
-                urls[i] = new URL(urlStrings[i]);
+                urls[i] = new URL(validUrlStrings[i]);
             }
         } catch (Throwable e) {
             throw new RuntimeException(e);
