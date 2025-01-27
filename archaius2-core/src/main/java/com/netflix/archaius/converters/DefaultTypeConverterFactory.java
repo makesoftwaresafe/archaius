@@ -35,6 +35,7 @@ public final class DefaultTypeConverterFactory implements TypeConverter.Factory 
     public static final DefaultTypeConverterFactory INSTANCE = new DefaultTypeConverterFactory();
 
     private static Boolean convertBoolean(String value) {
+        value = value.trim();
         if (value.equalsIgnoreCase("true") || value.equalsIgnoreCase("yes") || value.equalsIgnoreCase("on")) {
             return Boolean.TRUE;
         }

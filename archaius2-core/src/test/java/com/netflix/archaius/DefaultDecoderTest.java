@@ -176,4 +176,11 @@ public class DefaultDecoderTest {
         class Foo {}
         assertFalse(DefaultDecoder.INSTANCE.get(Foo.class).isPresent());
     }
+
+    @Test
+    public void testConvertBoolean() {
+        DefaultDecoder decoder = DefaultDecoder.INSTANCE;
+        boolean flag = decoder.decode(boolean.class, " true ");
+        assertTrue(flag);
+    }
 }
