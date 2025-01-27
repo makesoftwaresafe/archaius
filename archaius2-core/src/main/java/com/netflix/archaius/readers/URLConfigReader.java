@@ -18,6 +18,7 @@ package com.netflix.archaius.readers;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Arrays;
 import java.util.Collection;
@@ -56,17 +57,18 @@ public class URLConfigReader implements Callable<PollingResponse> {
         if (urlStrings == null || urlStrings.length == 0) {
             throw new IllegalArgumentException("urlStrings is null or empty");
         }
-        URL[] urls = new URL[urlStrings.length];
-        try {
-            for (int i = 0; i < urls.length; i++) {
-                urls[i] = new URL(urlStrings[i]);
-            }
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        }
-        return urls;        
+        return Arrays.stream(urlStrings)
+                .filter(s -> s != null && !s.isEmpty())
+                .map(url -> {
+                    try {
+                        return new URL(url);
+                    } catch (MalformedURLException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .toArray(URL[]::new);
     }
-    
+
     @Override
     public PollingResponse call() throws IOException {
         final Map<String, String> map = new HashMap<String, String>();
