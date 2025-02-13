@@ -169,6 +169,15 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
          */
         @Override
         public T get() {
+            return internalGet(false);
+        }
+
+        @Override
+        public T getSwallowErrors() {
+            return internalGet(true);
+        }
+
+        private T internalGet(boolean swallowErrors) {
             int currentMasterVersion = masterVersion.get();
             CachedValue<T> currentCachedValue = this.cachedValue;
 
@@ -192,10 +201,12 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
                 newValue = new CachedValue<>(supplier.get(), currentMasterVersion);
 
             } catch (RuntimeException e) {
-                // Oh, no, something went wrong while trying to get the new value. Log the error and return null.
-                // Upstream users may return that null unchanged or substitute it by a defaultValue.
-                // We leave the cache unchanged, which means the next caller will try again.
-                LOG.error("Unable to update value for property '{}'", keyAndType.key, e);
+                if (!swallowErrors) {
+                    // Oh, no, something went wrong while trying to get the new value. Log the error and return null.
+                    // Upstream users may return that null unchanged or substitute it by a defaultValue.
+                    // We leave the cache unchanged, which means the next caller will try again.
+                    LOG.error("Unable to update value for property '{}'", keyAndType.key, e);
+                }
                 return null;
             }
 
