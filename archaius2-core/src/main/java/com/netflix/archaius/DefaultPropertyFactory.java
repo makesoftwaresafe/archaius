@@ -131,11 +131,15 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
         return (Property<T>) properties.computeIfAbsent(keyAndType, (ignore) -> new PropertyImpl<>(keyAndType, supplier));
     }
 
+    interface ErrorSwallowingProperty<T> {
+        T getSwallowErrors();
+    }
+
     /**
      * Implementation of the Property interface. This class looks at the factory's masterVersion on each read to
      * determine if the cached parsed values is stale.
      */
-    private final class PropertyImpl<T> implements Property<T> {
+    private final class PropertyImpl<T> implements Property<T>, ErrorSwallowingProperty<T> {
 
         private final KeyAndType<T> keyAndType;
         private final Supplier<T> supplier;

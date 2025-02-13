@@ -60,15 +60,6 @@ public interface Property<T> extends Supplier<T> {
     T get();
 
     /**
-     * Return the most recent value of the property, swallowing any exceptions that occur.
-     *
-     * @return  Most recent value for the property
-     */
-    default T getSwallowErrors() {
-        return get();
-    }
-
-    /**
      * Add a listener that will be called whenever the property value changes.
      * @implNote Implementors of this interface MUST override this method or {@link #subscribe(Consumer)}.
      * @deprecated Use {@link Property#subscribe(Consumer)} instead

@@ -499,9 +499,15 @@ public class ConfigProxyFactory {
                 return value != null ? value : defaultValueSupplier.apply(null);
             }
 
+            @SuppressWarnings({"unchecked"})
             @Override
             public T invokeSwallowErrors(Object[] args) {
-                T value = prop.getSwallowErrors();
+                T value;
+                if (prop instanceof DefaultPropertyFactory.ErrorSwallowingProperty) {
+                    value = ((DefaultPropertyFactory.ErrorSwallowingProperty<T>) prop).getSwallowErrors();
+                } else {
+                    value = prop.get();
+                }
                 return value != null ? value : defaultValueSupplier.apply(null);
             }
         };
