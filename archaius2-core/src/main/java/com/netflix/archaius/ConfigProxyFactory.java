@@ -202,6 +202,10 @@ public class ConfigProxyFactory {
          * Invoke the method with the provided arguments
          */
         T invoke(Object[] args);
+
+        default T invokeIgnoreErrors(Object[] args) {
+            return invoke(args);
+        }
     }
 
     /**
@@ -488,9 +492,24 @@ public class ConfigProxyFactory {
     protected <T> PropertyValueGetter<T> createScalarProperty(final Type type, final String propName, Function<Object[], T> defaultValueSupplier) {
         LOG.debug("Creating scalar property `{}` for type `{}`", propName, type.getClass());
         final Property<T> prop = propertyRepository.get(propName, type);
-        return args -> {
-            T value = prop.get();
-            return value != null ? value : defaultValueSupplier.apply(null);
+        return new PropertyValueGetter<T>() {
+            @Override
+            public T invoke(Object[] args) {
+                T value = prop.get();
+                return value != null ? value : defaultValueSupplier.apply(null);
+            }
+
+            @SuppressWarnings({"unchecked"})
+            @Override
+            public T invokeIgnoreErrors(Object[] args) {
+                T value;
+                if (prop instanceof DefaultPropertyFactory.ErrorIgnoringProperty) {
+                    value = ((DefaultPropertyFactory.ErrorIgnoringProperty<T>) prop).getIgnoreErrors();
+                } else {
+                    value = prop.get();
+                }
+                return value != null ? value : defaultValueSupplier.apply(null);
+            }
         };
     }
 
@@ -611,7 +630,7 @@ public class ConfigProxyFactory {
             try {
                 // This call should fail for parameterized properties, because the PropertyValueGetter has a non-empty
                 // argument list. Fortunately, the implementation there cooperates with us and returns a null instead :-)
-                propertyValue = entry.getValue().invoke(null);
+                propertyValue = entry.getValue().invokeIgnoreErrors(null);
             } catch (Exception e) {
                 // Just in case
                 propertyValue = e.getMessage();
