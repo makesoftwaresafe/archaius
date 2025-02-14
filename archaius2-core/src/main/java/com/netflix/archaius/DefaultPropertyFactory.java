@@ -131,15 +131,15 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
         return (Property<T>) properties.computeIfAbsent(keyAndType, (ignore) -> new PropertyImpl<>(keyAndType, supplier));
     }
 
-    interface ErrorSwallowingProperty<T> {
-        T getSwallowErrors();
+    interface ErrorIgnoringProperty<T> {
+        T getIgnoreErrors();
     }
 
     /**
      * Implementation of the Property interface. This class looks at the factory's masterVersion on each read to
      * determine if the cached parsed values is stale.
      */
-    private final class PropertyImpl<T> implements Property<T>, ErrorSwallowingProperty<T> {
+    private final class PropertyImpl<T> implements Property<T>, ErrorIgnoringProperty<T> {
 
         private final KeyAndType<T> keyAndType;
         private final Supplier<T> supplier;
@@ -177,11 +177,11 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
         }
 
         @Override
-        public T getSwallowErrors() {
+        public T getIgnoreErrors() {
             return internalGet(true);
         }
 
-        private T internalGet(boolean swallowErrors) {
+        private T internalGet(boolean ignoreErrors) {
             int currentMasterVersion = masterVersion.get();
             CachedValue<T> currentCachedValue = this.cachedValue;
 
@@ -205,7 +205,7 @@ public class DefaultPropertyFactory implements PropertyFactory, ConfigListener {
                 newValue = new CachedValue<>(supplier.get(), currentMasterVersion);
 
             } catch (RuntimeException e) {
-                if (!swallowErrors) {
+                if (!ignoreErrors) {
                     // Oh, no, something went wrong while trying to get the new value. Log the error and return null.
                     // Upstream users may return that null unchanged or substitute it by a defaultValue.
                     // We leave the cache unchanged, which means the next caller will try again.
